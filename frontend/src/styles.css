@@ -1,0 +1,296 @@
+:root {
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.8fr);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(27, 77, 137, 0.14), transparent 32%),
+    linear-gradient(135deg, #f7fbff 0%, #eef4f8 58%, #f7f2ef 100%);
+}
+
+.login-panel {
+  display: flex;
+  align-items: center;
+  max-width: 720px;
+  padding: 64px;
+}
+
+.login-panel h1 {
+  max-width: 560px;
+}
+
+.login-metrics {
+  gap: 12px;
+}
+
+.metric {
+  min-width: 130px;
+  padding: 14px;
+  border: 1px solid #d8e1ec;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.login-visual {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px;
+  background:
+    linear-gradient(160deg, rgba(15, 32, 52, 0.94), rgba(28, 64, 88, 0.86)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640' viewBox='0 0 640 640'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.16'%3E%3Cpath d='M0 112h640M0 240h640M0 368h640M0 496h640M112 0v640M240 0v640M368 0v640M496 0v640'/%3E%3Ccircle cx='320' cy='320' r='176'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+}
+
+.signal-card {
+  width: min(420px, 100%);
+  padding: 24px;
+  display: grid;
+  gap: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.brand-avatar {
+  color: #ffffff;
+  background: linear-gradient(135deg, #1b4d89, #3b8a7e);
+}
+
+.critical-avatar {
+  color: #ffffff;
+  background: #bf3b46;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: #f4f7fb;
+}
+
+.side-nav .MuiDrawer-paper {
+  width: 276px;
+  border-right: 1px solid #dfe7f1;
+  background: #ffffff;
+}
+
+.nav-brand {
+  gap: 12px;
+  min-height: 76px;
+}
+
+.nav-list {
+  padding: 14px 10px;
+}
+
+.nav-list .MuiListItemButton-root {
+  min-height: 48px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.nav-footer {
+  margin-top: auto;
+  padding: 16px;
+}
+
+.main-content {
+  margin-left: 276px;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.top-bar {
+  color: inherit;
+  background: rgba(244, 247, 251, 0.88);
+  border-bottom: 1px solid #dfe7f1;
+  backdrop-filter: blur(18px);
+  margin: -24px -24px 24px;
+}
+
+.top-bar .MuiToolbar-root {
+  min-height: 88px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.user-avatar {
+  color: #ffffff;
+  background: #182231;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.summary-card,
+.incident-card,
+.history-list,
+.detail-header,
+.detail-panel,
+.empty-state {
+  border: 1px solid #dfe7f1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.summary-card {
+  min-height: 116px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.summary-icon {
+  color: #1b4d89;
+  background: #e7f0fb;
+}
+
+.incident-card {
+  padding: 20px;
+}
+
+.card-actions {
+  min-width: 180px;
+  justify-content: center;
+}
+
+.history-row {
+  min-height: 86px;
+  padding: 16px 18px;
+}
+
+.detail-header,
+.detail-panel,
+.empty-state {
+  padding: 22px;
+}
+
+.detail-alert {
+  border: 1px solid #c9d9ea;
+}
+
+.back-button {
+  align-self: flex-start;
+}
+
+.log-line {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  overflow-wrap: anywhere;
+  border: 1px solid #263548;
+  border-radius: 8px;
+  color: #d7f9e8;
+  background: #182231;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.empty-state {
+  min-height: 150px;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+
+  .login-panel {
+    padding: 40px 24px;
+  }
+
+  .login-visual {
+    min-height: 360px;
+    padding: 24px;
+  }
+
+  .side-nav .MuiDrawer-paper {
+    width: 100%;
+    height: auto;
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    border-right: 0;
+    border-top: 1px solid #dfe7f1;
+  }
+
+  .nav-brand,
+  .nav-footer {
+    display: none;
+  }
+
+  .nav-list {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .nav-list .MuiListItemButton-root {
+    margin-bottom: 0;
+    justify-content: center;
+  }
+
+  .nav-list .MuiListItemIcon-root {
+    min-width: 34px;
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: 16px 16px 96px;
+  }
+
+  .top-bar {
+    margin: -16px -16px 18px;
+  }
+
+  .top-bar .MuiToolbar-root {
+    align-items: flex-start;
+    gap: 12px;
+    min-height: auto;
+    padding: 16px;
+    flex-direction: column;
+  }
+
+  .card-actions {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .login-panel h1 {
+    font-size: 2.1rem;
+  }
+
+  .nav-list .MuiListItemText-root {
+    display: none;
+  }
+
+  .history-row {
+    align-items: flex-start;
+  }
+}
