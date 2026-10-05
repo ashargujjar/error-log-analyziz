@@ -149,6 +149,20 @@ class APIKey:
     def __init__(self, db=database):
         self.collection = db["api_keys"]
 
+    async def find_user_by_key(self, raw_key: str) -> dict | None:
+        key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        return await self.collection.find_one(
+            {
+                "key_hash": key_hash,
+                "revoked_at": None,
+            },
+            {
+                "_id": 0,
+                "github_id": 1,
+                "name": 1,
+            },
+        )
+
     async def create(self, github_id: str, name: str) -> APIKeyCreatedResponse:
         now = datetime.utcnow()
         raw_key = f"ela_{secrets.token_urlsafe(32)}"

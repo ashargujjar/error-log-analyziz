@@ -11,6 +11,7 @@ PUBLIC_PATHS = {
     "/docs",
     "/redoc",
     "/openapi.json",
+    "/errors",
 }
 
 
