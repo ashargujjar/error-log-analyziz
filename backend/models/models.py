@@ -222,3 +222,18 @@ class APIKey:
             {"$set": {"revoked_at": datetime.utcnow()}},
         )
         return result.modified_count > 0
+
+
+class ErrorLog:
+    def __init__(self, db=database):
+        self.collection = db["errors"]
+
+    async def create(self, github_id: str, error_data: dict) -> str:
+        result = await self.collection.insert_one(
+            {
+                "github_id": github_id,
+                "error": error_data,
+                "created_at": datetime.utcnow(),
+            }
+        )
+        return str(result.inserted_id)

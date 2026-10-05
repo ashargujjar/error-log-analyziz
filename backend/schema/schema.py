@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -39,3 +38,40 @@ class APIKeyHistoryItem(BaseModel):
 
 class APIKeyCreatedResponse(APIKeyHistoryItem):
     key: str
+
+
+class ErrorFileEvidence(BaseModel):
+    filePath: str = Field(
+        description="Path or name of the source file where the error occurred.",
+    )
+    lineNumber: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Source-code line number where the error was encountered.",
+    )
+    lineSource: Optional[str] = Field(
+        default=None,
+        description="Source-code line containing or indicating the error.",
+    )
+
+
+# Error information extracted from an error description.
+class errorStructureData(BaseModel):
+    errorFiles: Optional[list[ErrorFileEvidence]] = Field(
+        default=None,
+        description="Source files and line-level evidence associated with the error.",
+    )
+    errorType: str = Field(
+        description="Type or category of the error.",
+    )
+    errorMessages: Optional[str] = Field(
+        default=None,
+        description="Original error message or messages.",
+    )
+    functionClassName: Optional[str] = Field(
+        default=None,
+        description="Function, method, or class where the error occurred.",
+    )
+    description: str = Field(
+        description="Clear description of the error extracted from the input.",
+    )

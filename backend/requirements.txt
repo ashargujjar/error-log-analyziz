@@ -4,3 +4,4 @@ pymongo
 httpx
 cryptography
 python-dotenv
+langchain_deepseek
