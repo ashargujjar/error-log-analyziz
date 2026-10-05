@@ -88,15 +88,19 @@ async def github_callback(
         ),
     )
 
-    await User().save_github_oauth_user(user, github_account)
-    return auth_success_redirect(str(github_id))
+    user_model = User()
+    await user_model.save_github_oauth_user(user, github_account)
+    session_token = await user_model.create_session(str(github_id))
+    return auth_success_redirect(session_token)
 
 
-async def logout(github_user_id: str | None = Cookie(default=None)) -> JSONResponse:
-    if github_user_id:
-        await User().sign_out(github_user_id)
+async def logout(
+    auth_session: str | None = Cookie(default=None),
+) -> JSONResponse:
+    await User().delete_session(auth_session)
 
     response = JSONResponse({"message": "Signed out successfully."})
+    response.delete_cookie("auth_session")
     response.delete_cookie("github_user_id")
     response.delete_cookie("github_oauth_state")
     return response

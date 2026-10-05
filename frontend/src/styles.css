@@ -146,7 +146,8 @@ a {
 .history-list,
 .detail-header,
 .detail-panel,
-.empty-state {
+.empty-state,
+.api-key-panel {
   border: 1px solid #dfe7f1;
   border-radius: 8px;
   background: #ffffff;
@@ -183,6 +184,26 @@ a {
 .detail-panel,
 .empty-state {
   padding: 22px;
+}
+
+.api-key-panel {
+  padding: 22px;
+}
+
+.api-key-row {
+  padding: 16px 0;
+  border-top: 1px solid #dfe7f1;
+}
+
+.api-key-secret {
+  display: block;
+  padding: 14px;
+  overflow-wrap: anywhere;
+  border: 1px solid #c9d9ea;
+  border-radius: 8px;
+  color: #182231;
+  background: #f4f7fb;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 .detail-alert {

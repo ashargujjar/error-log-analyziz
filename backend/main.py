@@ -10,7 +10,9 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from db.db import mongo_client
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from middleware.auth_middleware import AuthMiddleware
 from routes.auth_routes import router as auth_router
+from routes.api_key_routes import router as api_key_router
 
 
 app = FastAPI(title="Error Log Analyzer API")
@@ -18,6 +20,7 @@ app = FastAPI(title="Error Log Analyzer API")
 frontend_url = os.getenv("FRONTEND_URL", "http://127.0.0.1:5173")
 
 
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[frontend_url],
@@ -27,6 +30,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(api_key_router)
 
 
 @app.on_event("startup")

@@ -18,21 +18,31 @@ import {
   ListItemText,
   Paper,
   Stack,
+  TextField,
   ThemeProvider,
   Toolbar,
   Tooltip,
   Typography,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   createTheme,
 } from "@mui/material";
 import ArrowBack from "@mui/icons-material/ArrowBack";
 import BugReport from "@mui/icons-material/BugReport";
 import CheckCircle from "@mui/icons-material/CheckCircle";
+import Close from "@mui/icons-material/Close";
+import ContentCopy from "@mui/icons-material/ContentCopy";
+import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import ErrorOutline from "@mui/icons-material/ErrorOutline";
 import GitHub from "@mui/icons-material/GitHub";
 import History from "@mui/icons-material/History";
+import Key from "@mui/icons-material/Key";
 import Logout from "@mui/icons-material/Logout";
 import NotificationsActive from "@mui/icons-material/NotificationsActive";
 import OpenInNew from "@mui/icons-material/OpenInNew";
+import Add from "@mui/icons-material/Add";
 import Rule from "@mui/icons-material/Rule";
 import Shield from "@mui/icons-material/Shield";
 import Timeline from "@mui/icons-material/Timeline";
@@ -122,6 +132,10 @@ function App() {
   const [page, setPage] = useState("alerts");
   const [selectedIncidentId, setSelectedIncidentId] = useState(null);
   const [incidents, setIncidents] = useState(initialIncidents);
+  const [apiKeys, setApiKeys] = useState([]);
+  const [apiKeysLoading, setApiKeysLoading] = useState(false);
+  const [apiKeysError, setApiKeysError] = useState("");
+  const [newApiKey, setNewApiKey] = useState(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -132,6 +146,43 @@ function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (page !== "api-keys") {
+      return;
+    }
+
+    let active = true;
+    setApiKeysLoading(true);
+    setApiKeysError("");
+
+    fetch(`${API_BASE_URL}/api-keys`, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Could not load API keys.");
+        }
+        return response.json();
+      })
+      .then((keys) => {
+        if (active) {
+          setApiKeys(keys);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setApiKeysError(error.message);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setApiKeysLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [page]);
 
   const selectedIncident = useMemo(
     () => incidents.find((incident) => incident.id === selectedIncidentId),
@@ -174,6 +225,44 @@ function App() {
     }
   };
 
+  const createApiKey = async (name) => {
+    const response = await fetch(`${API_BASE_URL}/api-keys`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "Could not create API key.");
+    }
+
+    const created = await response.json();
+    setApiKeys((currentKeys) => [created, ...currentKeys]);
+    setNewApiKey(created);
+  };
+
+  const deleteApiKey = async (keyId) => {
+    const response = await fetch(`${API_BASE_URL}/api-keys/${keyId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "Could not delete API key.");
+    }
+
+    setApiKeys((currentKeys) =>
+      currentKeys.map((apiKey) =>
+        apiKey.id === keyId
+          ? { ...apiKey, revoked_at: new Date().toISOString() }
+          : apiKey,
+      ),
+    );
+  };
+
   if (!isAuthenticated) {
     return (
       <ThemeProvider theme={theme}>
@@ -212,6 +301,15 @@ function App() {
           {page === "history" && (
             <HistoryPage incidents={incidents} onOpenDetail={openDetail} />
           )}
+          {page === "api-keys" && (
+            <APIKeysPage
+              apiKeys={apiKeys}
+              loading={apiKeysLoading}
+              error={apiKeysError}
+              onCreate={createApiKey}
+              onDelete={deleteApiKey}
+            />
+          )}
           {page === "detail" && selectedIncident && (
             <IncidentDetail
               incident={selectedIncident}
@@ -227,6 +325,10 @@ function App() {
           )}
         </Box>
       </Box>
+      <NewAPIKeyDialog
+        apiKey={newApiKey}
+        onClose={() => setNewApiKey(null)}
+      />
     </ThemeProvider>
   );
 }
@@ -330,6 +432,15 @@ function Navigation({ activePage, onNavigate, onLogout, pendingCount }) {
           </ListItemIcon>
           <ListItemText primary="History" />
         </ListItemButton>
+        <ListItemButton
+          selected={activePage === "api-keys"}
+          onClick={() => onNavigate("api-keys")}
+        >
+          <ListItemIcon>
+            <Key />
+          </ListItemIcon>
+          <ListItemText primary="API keys" />
+        </ListItemButton>
       </List>
       <Box className="nav-footer">
         <Button
@@ -344,6 +455,227 @@ function Navigation({ activePage, onNavigate, onLogout, pendingCount }) {
       </Box>
     </Drawer>
   );
+}
+
+function APIKeysPage({ apiKeys, loading, error, onCreate, onDelete }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+
+  const handleCreate = async () => {
+    if (!name.trim()) {
+      setCreateError("Give this API key a name first.");
+      return;
+    }
+
+    setCreating(true);
+    setCreateError("");
+    try {
+      await onCreate(name.trim());
+      setName("");
+      setDialogOpen(false);
+    } catch (createRequestError) {
+      setCreateError(createRequestError.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Stack spacing={3}>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={2}
+        alignItems={{ xs: "stretch", sm: "center" }}
+        justifyContent="space-between"
+      >
+        <SectionHeader
+          title="API keys"
+          subtitle="Create keys for connecting trusted tools to your incident workspace."
+        />
+        <Button
+          variant="contained"
+          startIcon={<Add />}
+          onClick={() => {
+            setCreateError("");
+            setDeleteError("");
+            setDialogOpen(true);
+          }}
+        >
+          Get API key
+        </Button>
+      </Stack>
+
+      {error && <Alert severity="error">{error}</Alert>}
+      {deleteError && <Alert severity="error">{deleteError}</Alert>}
+      <Paper elevation={0} className="api-key-panel">
+        <Stack spacing={1.5}>
+          <Typography variant="h3">Key history</Typography>
+          <Typography color="text.secondary">
+            Full keys are shown only once when they are created.
+          </Typography>
+          {loading && <Typography color="text.secondary">Loading keys...</Typography>}
+          {!loading && apiKeys.length === 0 && (
+            <EmptyState
+              title="No API keys yet"
+              body="Create your first key to connect an external service."
+            />
+          )}
+          {!loading &&
+            apiKeys.map((apiKey) => (
+              <Stack
+                className="api-key-row"
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1.5}
+                justifyContent="space-between"
+                key={apiKey.id}
+              >
+                <Box>
+                  <Typography fontWeight={750}>{apiKey.name}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {apiKey.prefix}... • Created {formatDate(apiKey.created_at)}
+                  </Typography>
+                </Box>
+                <Chip
+                  size="small"
+                  color={apiKey.revoked_at ? "default" : "success"}
+                  label={apiKey.revoked_at ? "Revoked" : "Active"}
+                />
+                {!apiKey.revoked_at && (
+                  <Tooltip title="Delete API key">
+                    <IconButton
+                      size="small"
+                      color="error"
+                      aria-label={`Delete ${apiKey.name}`}
+                      onClick={async () => {
+                        if (
+                          window.confirm(
+                            `Delete the API key "${apiKey.name}"?`,
+                          )
+                        ) {
+                          try {
+                            setDeleteError("");
+                            await onDelete(apiKey.id);
+                          } catch (deleteError) {
+                            setDeleteError(deleteError.message);
+                          }
+                        }
+                      }}
+                    >
+                      <DeleteOutline />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Stack>
+            ))}
+        </Stack>
+      </Paper>
+
+      <Dialog
+        open={dialogOpen}
+        onClose={() => !creating && setDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Get API key</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} pt={1}>
+            <Typography color="text.secondary">
+              Name the key so you can recognize it later.
+            </Typography>
+            <TextField
+              autoFocus
+              fullWidth
+              label="Key name"
+              placeholder="Production monitor"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  handleCreate();
+                }
+              }}
+              error={Boolean(createError)}
+              helperText={createError}
+              inputProps={{ maxLength: 80 }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            startIcon={<Close />}
+            onClick={() => setDialogOpen(false)}
+            disabled={creating}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Key />}
+            onClick={handleCreate}
+            disabled={creating}
+          >
+            {creating ? "Creating..." : "Create key"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Stack>
+  );
+}
+
+function NewAPIKeyDialog({ apiKey, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setCopied(false);
+  }, [apiKey]);
+
+  if (!apiKey) {
+    return null;
+  }
+
+  const copyKey = async () => {
+    await navigator.clipboard.writeText(apiKey.key);
+    setCopied(true);
+  };
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>API key created</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} pt={1}>
+          <Alert severity="warning">
+            Copy this key now. It will not be shown again.
+          </Alert>
+          <Typography variant="subtitle2">{apiKey.name}</Typography>
+          <Box component="code" className="api-key-secret">
+            {apiKey.key}
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button
+          startIcon={<ContentCopy />}
+          onClick={copyKey}
+          color={copied ? "success" : "primary"}
+        >
+          {copied ? "Copied" : "Copy key"}
+        </Button>
+        <Button variant="contained" onClick={onClose}>
+          Done
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function formatDate(value) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function TopBar({ pendingCount }) {
