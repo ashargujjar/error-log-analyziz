@@ -1,6 +1,8 @@
 import secrets
 
+from fastapi import Cookie
 from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse
 
 from models.models import User
 from schema.schema import GitHubOAuthAccount, UserSchema
@@ -87,4 +89,14 @@ async def github_callback(
     )
 
     await User().save_github_oauth_user(user, github_account)
-    return auth_success_redirect()
+    return auth_success_redirect(str(github_id))
+
+
+async def logout(github_user_id: str | None = Cookie(default=None)) -> JSONResponse:
+    if github_user_id:
+        await User().sign_out(github_user_id)
+
+    response = JSONResponse({"message": "Signed out successfully."})
+    response.delete_cookie("github_user_id")
+    response.delete_cookie("github_oauth_state")
+    return response

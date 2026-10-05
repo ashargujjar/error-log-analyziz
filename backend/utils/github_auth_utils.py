@@ -133,7 +133,7 @@ def encrypt_token(token: str) -> str:
         )
 
 
-def auth_success_redirect() -> RedirectResponse:
+def auth_success_redirect(github_id: str) -> RedirectResponse:
     response = RedirectResponse(
         _with_query(
             _frontend_url("success"),
@@ -145,6 +145,14 @@ def auth_success_redirect() -> RedirectResponse:
         status_code=302,
     )
     response.delete_cookie("github_oauth_state")
+    response.set_cookie(
+        "github_user_id",
+        github_id,
+        httponly=True,
+        max_age=60 * 60 * 24 * 30,
+        samesite="lax",
+        secure=oauth_cookie_secure(),
+    )
     return response
 
 
@@ -161,6 +169,7 @@ def auth_error_redirect(reason: str) -> RedirectResponse:
         status_code=302,
     )
     response.delete_cookie("github_oauth_state")
+    response.delete_cookie("github_user_id")
     return response
 
 

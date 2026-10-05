@@ -77,3 +77,13 @@ class User:
             "user_id": user_id,
             "github_account_id": str(github_account_id),
         }
+
+    async def sign_out(self, github_id: str) -> bool:
+        user = await self.users_collection.find_one({"github_id": github_id})
+        if user is None:
+            return False
+
+        result = await self.github_accounts_collection.delete_one(
+            {"user_id": str(user["_id"])}
+        )
+        return result.deleted_count > 0

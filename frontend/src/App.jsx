@@ -161,6 +161,19 @@ function App() {
     setPage("detail");
   };
 
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } finally {
+      sessionStorage.removeItem("github_authenticated");
+      setIsAuthenticated(false);
+      window.location.replace("/");
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <ThemeProvider theme={theme}>
@@ -184,10 +197,7 @@ function App() {
             setPage(nextPage);
             setSelectedIncidentId(null);
           }}
-          onLogout={() => {
-            sessionStorage.removeItem("github_authenticated");
-            setIsAuthenticated(false);
-          }}
+          onLogout={handleLogout}
           pendingCount={awaitingApproval.length}
         />
         <Box component="main" className="main-content">
