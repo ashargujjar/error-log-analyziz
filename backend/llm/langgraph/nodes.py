@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -788,17 +789,275 @@ def infrastructure_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
     return {"infrastructure_analysis": _run_infrastructure_analyzer(state)}
 
 
-def external_api_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
-    return {
-        "external_api_analysis": _run_analyzer(
-            "External API Analyzer",
-            (
-                "third-party APIs, provider responses, HTTP status codes, "
-                "authentication with external services, quotas, and integrations"
-            ),
-            state["structured_error"],
-        )
+def _external_api_evidence(
+    structured_error: dict[str, Any],
+) -> tuple[bool, str, str, int | None, list[str], list[str]]:
+    provider_patterns = {
+        "github": ("github", "github api", "api.github.com"),
+        "stripe": ("stripe", "stripe api", "api.stripe.com"),
+        "aws": ("aws", "amazon web services", "aws api", "amazonaws.com"),
+        "openai": ("openai", "openai api", "api.openai.com"),
+        "deepseek": ("deepseek", "deepseek api", "api.deepseek.com"),
     }
+    failure_patterns = {
+        "authentication_failure": (
+            "invalid api key",
+            "invalid token",
+            "missing api key",
+            "authentication failed",
+            "unauthenticated",
+            "401",
+        ),
+        "authorization_failure": (
+            "forbidden",
+            "permission denied",
+            "insufficient permission",
+            "403",
+        ),
+        "not_found": (
+            "not found",
+            "unknown endpoint",
+            "404",
+        ),
+        "rate_limit": (
+            "rate limit",
+            "rate_limit",
+            "too many requests",
+            "quota exceeded",
+            "429",
+        ),
+        "server_error": (
+            "500",
+            "502",
+            "503",
+            "504",
+            "internal server error",
+            "bad gateway",
+            "service unavailable",
+        ),
+        "timeout": (
+            "timeout",
+            "timed out",
+            "read timeout",
+            "request timeout",
+        ),
+        "outage": (
+            "provider outage",
+            "service outage",
+            "third-party service is down",
+            "service unavailable",
+        ),
+        "webhook_failure": (
+            "webhook",
+            "webhook delivery failed",
+            "webhook signature",
+        ),
+        "network_failure": (
+            "dns",
+            "connection refused",
+            "network unreachable",
+            "connection reset",
+        ),
+        "invalid_request": (
+            "invalid request",
+            "bad request",
+            "malformed request",
+            "400",
+        ),
+    }
+
+    searchable_values = [
+        structured_error.get("errorMessages"),
+        structured_error.get("description"),
+        structured_error.get("functionClassName"),
+    ]
+    for error_file in structured_error.get("errorFiles") or []:
+        if isinstance(error_file, dict):
+            searchable_values.extend(
+                [
+                    error_file.get("filePath"),
+                    error_file.get("lineSource"),
+                ]
+            )
+
+    searchable_text = " ".join(
+        value.lower()
+        for value in searchable_values
+        if isinstance(value, str)
+    )
+
+    provider = "unknown"
+    for candidate, patterns in provider_patterns.items():
+        if any(pattern in searchable_text for pattern in patterns):
+            provider = candidate
+            break
+
+    failure_type = "unknown"
+    for candidate, patterns in failure_patterns.items():
+        if any(pattern in searchable_text for pattern in patterns):
+            failure_type = candidate
+            break
+
+    status_match = re.search(r"\b([1-5]\d{2})\b", searchable_text)
+    http_status = int(status_match.group(1)) if status_match else None
+    if http_status is not None:
+        status_failure_types = {
+            400: "invalid_request",
+            401: "authentication_failure",
+            403: "authorization_failure",
+            404: "not_found",
+            429: "rate_limit",
+            500: "server_error",
+            502: "server_error",
+            503: "server_error",
+            504: "server_error",
+        }
+        failure_type = status_failure_types.get(http_status, failure_type)
+
+    relevant = (
+        structured_error.get("errorType")
+        in {
+            "external_api_error",
+            "authentication_error",
+            "rate_limit_error",
+        }
+        or provider != "unknown"
+        or failure_type != "unknown"
+        or http_status is not None
+    )
+    evidence = []
+    traces = []
+    if structured_error.get("errorType") in {
+        "external_api_error",
+        "authentication_error",
+        "rate_limit_error",
+    }:
+        evidence.append(
+            f"errorType is {structured_error.get('errorType')}"
+        )
+    if provider != "unknown":
+        evidence.append(f"external provider evidence indicates {provider}")
+    if http_status is not None:
+        evidence.append(f"HTTP status is {http_status}")
+    if failure_type != "unknown":
+        evidence.append(f"external API evidence indicates {failure_type}")
+
+    for value in searchable_values:
+        if isinstance(value, str) and value.strip():
+            traces.append(value.strip())
+
+    return (
+        relevant,
+        provider,
+        failure_type,
+        http_status,
+        evidence,
+        list(dict.fromkeys(traces)),
+    )
+
+
+def _run_external_api_analyzer(
+    state: ErrorWorkflowState,
+) -> dict[str, Any]:
+    structured_error = state["structured_error"]
+    (
+        relevant,
+        provider,
+        failure_type,
+        http_status,
+        evidence,
+        traces,
+    ) = _external_api_evidence(structured_error)
+
+    if not relevant:
+        return ExternalAPIAnalyzerFinding(
+            relevant=False,
+            confidence=0.05,
+            finding=(
+                "No third-party provider, endpoint, HTTP status, credential, "
+                "quota, or webhook evidence was found."
+            ),
+            evidence=[
+                "No external API category, provider, status code, or API failure signal."
+            ],
+            recommended_action=(
+                "Capture the provider, endpoint, HTTP status, response body, "
+                "or webhook delivery result."
+            ),
+            traces_to_check=traces,
+        ).model_dump()
+
+    try:
+        analyzer = _get_analysis_llm().with_structured_output(
+            ExternalAPIAnalyzerFinding
+        )
+        result = analyzer.invoke(
+            [
+                (
+                    "system",
+                    (
+                        "You are the External API Analyzer. Follow this workflow:\n"
+                        "1. Check third-party service evidence.\n"
+                        "2. Inspect provider, endpoint, status code, quota, "
+                        "credentials, timeout, outage, and webhook evidence.\n"
+                        "3. Determine whether the failure is external.\n"
+                        "4. Return an API finding.\n\n"
+                        "Analyze only the structured error. Do not call external "
+                        "APIs or invent provider responses, credentials, quotas, "
+                        "outages, endpoints, or evidence. Supported providers "
+                        "include GitHub, Stripe, AWS, OpenAI, and DeepSeek. "
+                        "Handle HTTP 401, 403, 404, 429, 500, 502, 503, and 504, "
+                        "provider timeouts, invalid API keys, rate limits, "
+                        "third-party outages, and webhook failures. Use unknown "
+                        "when the evidence is insufficient. Include exact provider, "
+                        "endpoint, status, and message traces in traces_to_check."
+                    ),
+                ),
+                (
+                    "user",
+                    "Structured error:\n"
+                    + json.dumps(structured_error, ensure_ascii=False)
+                ),
+            ]
+        )
+        finding = result.model_dump()
+        finding["evidence"] = list(
+            dict.fromkeys([*evidence, *finding.get("evidence", [])])
+        )
+        finding["traces_to_check"] = list(
+            dict.fromkeys(
+                [*traces, *finding.get("traces_to_check", [])]
+            )
+        )
+        if finding.get("provider") == "unknown" and provider != "unknown":
+            finding["provider"] = provider
+        if (
+            finding.get("failure_type") == "unknown"
+            and failure_type != "unknown"
+        ):
+            finding["failure_type"] = failure_type
+        if finding.get("http_status") is None:
+            finding["http_status"] = http_status
+        return ExternalAPIAnalyzerFinding(**finding).model_dump()
+    except Exception as exc:
+        return ExternalAPIAnalyzerFinding(
+            relevant=True,
+            confidence=0.2,
+            finding=f"External API analysis could not complete: {exc}",
+            evidence=evidence,
+            recommended_action=(
+                "Inspect the provider response, credentials, quota, endpoint, "
+                "and network traces."
+            ),
+            provider=provider,
+            failure_type=failure_type,
+            http_status=http_status,
+            traces_to_check=traces,
+        ).model_dump()
+
+
+def external_api_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
+    return {"external_api_analysis": _run_external_api_analyzer(state)}
 
 
 def aggregator_node(state: ErrorWorkflowState) -> dict[str, Any]:
