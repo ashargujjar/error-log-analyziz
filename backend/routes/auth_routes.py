@@ -1,12 +1,22 @@
 from fastapi import APIRouter, Cookie, Query
 
-from controllers.github_auth_controller import github_callback, github_login, logout
+from controllers.github_auth_controller import (
+    github_callback,
+    github_login,
+    list_github_repositories,
+    logout,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 router.add_api_route("/github/login", github_login, methods=["GET"])
+router.add_api_route(
+    "/github/repositories",
+    list_github_repositories,
+    methods=["GET"],
+)
 router.add_api_route("/logout", logout, methods=["POST"])
 
 

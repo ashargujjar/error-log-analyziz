@@ -16,6 +16,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -96,6 +97,9 @@ function formatDateValue(value) {
 }
 
 function recordStatus(record) {
+  if (record.github_issue?.url) {
+    return "Issue opened";
+  }
   if (record.status === "pending") {
     return "Pending processing";
   }
@@ -118,6 +122,7 @@ function mapErrorRecord(record) {
   const structuredError = record.error || {};
   const incident = record.incident || {};
   const analysis = record.analysis || {};
+  const githubIssue = record.github_issue || null;
   const rawLog =
     typeof record.payload === "string"
       ? record.payload
@@ -157,7 +162,9 @@ function mapErrorRecord(record) {
     environment: "Unknown",
     confidence: Number.isFinite(confidence) ? Math.round(confidence * 100) : 0,
     owner: record.source_name || "Unassigned",
-    gitHubIssue: null,
+    gitHubIssue: githubIssue?.url || null,
+    gitHubIssueRepo: githubIssue?.repo || null,
+    gitHubIssueNumber: githubIssue?.number || null,
     summary:
       incident.description ||
       structuredError.description ||
@@ -177,7 +184,10 @@ function mapErrorRecord(record) {
     structuredError,
     analysis,
     approval: record.approval || incident.approval || "pending",
-    canApprove: false,
+    canApprove:
+      record.status === "processed" &&
+      (record.approval || incident.approval || "pending") === "pending" &&
+      !githubIssue?.url,
     canReprocess: record.status === "failed",
   };
 }
@@ -257,6 +267,11 @@ function App() {
   const [apiKeysLoading, setApiKeysLoading] = useState(false);
   const [apiKeysError, setApiKeysError] = useState("");
   const [newApiKey, setNewApiKey] = useState(null);
+  const [approvalTarget, setApprovalTarget] = useState(null);
+  const [repositories, setRepositories] = useState([]);
+  const [repositoriesLoading, setRepositoriesLoading] = useState(false);
+  const [approvalSaving, setApprovalSaving] = useState(false);
+  const [approvalError, setApprovalError] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -438,6 +453,66 @@ function App() {
     }
   };
 
+  const openApprovalDialog = async (incidentId) => {
+    const incident = incidents.find((currentIncident) => currentIncident.id === incidentId);
+    if (!incident) {
+      return;
+    }
+
+    setApprovalTarget(incident);
+    setApprovalError("");
+
+    if (repositories.length > 0) {
+      return;
+    }
+
+    setRepositoriesLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/github/repositories`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "Could not load GitHub repositories.");
+      }
+      setRepositories(await response.json());
+    } catch (error) {
+      setApprovalError(error.message);
+    } finally {
+      setRepositoriesLoading(false);
+    }
+  };
+
+  const approveIncident = async (incidentId, repo) => {
+    setApprovalSaving(true);
+    setApprovalError("");
+    const response = await fetch(`${API_BASE_URL}/errors/${incidentId}/approve`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo }),
+    });
+
+    try {
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "Could not open GitHub issue.");
+      }
+
+      const updatedIncident = mapErrorRecord(await response.json());
+      setIncidents((currentIncidents) =>
+        currentIncidents.map((incident) =>
+          incident.id === updatedIncident.id ? updatedIncident : incident,
+        ),
+      );
+      setApprovalTarget(null);
+    } catch (error) {
+      setApprovalError(error.message);
+    } finally {
+      setApprovalSaving(false);
+    }
+  };
+
   const reprocessIncident = async (incidentId) => {
     setIncidentsError("");
     const response = await fetch(
@@ -499,6 +574,7 @@ function App() {
               onOpenDetail={openDetail}
               onDelete={deleteIncident}
               onReprocess={reprocessIncident}
+              onApprove={openApprovalDialog}
             />
           )}
           {page === "history" && (
@@ -522,6 +598,7 @@ function App() {
               onBack={() => setPage("history")}
               onDelete={deleteIncident}
               onReprocess={reprocessIncident}
+              onApprove={openApprovalDialog}
             />
           )}
           {page === "detail" && !selectedIncident && (
@@ -535,6 +612,20 @@ function App() {
       <NewAPIKeyDialog
         apiKey={newApiKey}
         onClose={() => setNewApiKey(null)}
+      />
+      <GitHubIssueDialog
+        incident={approvalTarget}
+        repositories={repositories}
+        loading={repositoriesLoading}
+        saving={approvalSaving}
+        error={approvalError}
+        onApprove={approveIncident}
+        onClose={() => {
+          if (!approvalSaving) {
+            setApprovalTarget(null);
+            setApprovalError("");
+          }
+        }}
       />
     </ThemeProvider>
   );
@@ -878,6 +969,100 @@ function NewAPIKeyDialog({ apiKey, onClose }) {
   );
 }
 
+function GitHubIssueDialog({
+  incident,
+  repositories,
+  loading,
+  saving,
+  error,
+  onApprove,
+  onClose,
+}) {
+  const [selectedRepo, setSelectedRepo] = useState("");
+
+  useEffect(() => {
+    if (!incident) {
+      setSelectedRepo("");
+      return;
+    }
+
+    setSelectedRepo((currentRepo) => {
+      if (currentRepo) {
+        return currentRepo;
+      }
+      return repositories[0]?.full_name || "";
+    });
+  }, [incident, repositories]);
+
+  if (!incident) {
+    return null;
+  }
+
+  const hasRepositories = repositories.length > 0;
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Open GitHub issue</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} pt={1}>
+          <Typography variant="subtitle2">{incident.title}</Typography>
+          <Typography color="text.secondary">
+            Select one of your connected GitHub repositories.
+          </Typography>
+          {error && <Alert severity="error">{error}</Alert>}
+          {loading && (
+            <Typography color="text.secondary">Loading repositories...</Typography>
+          )}
+          {!loading && !hasRepositories && (
+            <Alert severity="warning">
+              No repositories are available. Re-login with repo permission and try
+              again.
+            </Alert>
+          )}
+          {hasRepositories && (
+            <TextField
+              select
+              fullWidth
+              label="Repository"
+              value={selectedRepo}
+              onChange={(event) => setSelectedRepo(event.target.value)}
+              disabled={saving}
+            >
+              {repositories.map((repository) => (
+                <MenuItem
+                  value={repository.full_name}
+                  key={repository.full_name}
+                >
+                  {repository.full_name}
+                  {repository.private ? " - private" : " - public"}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button
+          startIcon={<Close />}
+          onClick={onClose}
+          disabled={saving}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          color="secondary"
+          startIcon={<GitHub />}
+          disabled={!selectedRepo || saving}
+          onClick={() => onApprove(incident.id, selectedRepo)}
+        >
+          {saving ? "Opening..." : "Open issue"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function formatDate(value) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -908,7 +1093,13 @@ function TopBar({ pendingCount }) {
   );
 }
 
-function AlertsPage({ incidents, onOpenDetail, onDelete, onReprocess }) {
+function AlertsPage({
+  incidents,
+  onOpenDetail,
+  onDelete,
+  onReprocess,
+  onApprove,
+}) {
   const awaitingApproval = incidents.filter(
     (incident) => incident.status === "Awaiting approval",
   );
@@ -949,6 +1140,7 @@ function AlertsPage({ incidents, onOpenDetail, onDelete, onReprocess }) {
             onOpenDetail={onOpenDetail}
             onDelete={onDelete}
             onReprocess={onReprocess}
+            onApprove={onApprove}
             approvalMode
           />
         ))}
@@ -972,6 +1164,7 @@ function AlertsPage({ incidents, onOpenDetail, onDelete, onReprocess }) {
             onOpenDetail={onOpenDetail}
             onDelete={onDelete}
             onReprocess={onReprocess}
+            onApprove={onApprove}
           />
         ))}
       </Stack>
@@ -1038,7 +1231,7 @@ function HistoryPage({ incidents, onOpenDetail }) {
   );
 }
 
-function IncidentDetail({ incident, onBack, onDelete, onReprocess }) {
+function IncidentDetail({ incident, onBack, onDelete, onReprocess, onApprove }) {
   return (
     <Stack spacing={2.5}>
       <Button
@@ -1092,6 +1285,7 @@ function IncidentDetail({ incident, onBack, onDelete, onReprocess }) {
                 variant="contained"
                 color="secondary"
                 startIcon={<GitHub />}
+                onClick={() => onApprove(incident.id)}
               >
                 Approve GitHub issue
               </Button>
@@ -1186,6 +1380,7 @@ function IncidentCard({
   onOpenDetail,
   onDelete,
   onReprocess,
+  onApprove,
   approvalMode = false,
 }) {
   return (
@@ -1257,6 +1452,7 @@ function IncidentCard({
               variant="contained"
               color="secondary"
               startIcon={<GitHub />}
+              onClick={() => onApprove(incident.id)}
             >
               Approve
             </Button>

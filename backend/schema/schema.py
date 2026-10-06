@@ -94,6 +94,21 @@ class APIKeyCreatedResponse(APIKeyHistoryItem):
     key: str
 
 
+class GitHubRepositoryItem(BaseModel):
+    full_name: str
+    private: bool = False
+    html_url: str
+
+
+class GitHubIssueApprovalRequest(BaseModel):
+    repo: str = Field(
+        min_length=3,
+        max_length=200,
+        pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+        description="Repository full name in owner/repo format.",
+    )
+
+
 class ErrorFileEvidence(BaseModel):
     filePath: str = Field(
         description="Path or name of the source file where the error occurred.",

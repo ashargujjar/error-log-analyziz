@@ -8,7 +8,13 @@ from starlette.concurrency import run_in_threadpool
 from llm.langgraph import run_error_workflow
 from models.error_log_model import ErrorLog
 from models.user_model import User
+from schema.schema import GitHubIssueApprovalRequest
 from utils.dataExtraction import extractErrorData
+from utils.github_issue import (
+    build_issue_body,
+    build_issue_title,
+    create_github_issue,
+)
 
 
 async def process_error(error_id: str) -> None:
@@ -148,3 +154,56 @@ async def reprocess_error(
 
     background_tasks.add_task(process_error, error_id)
     return queued
+
+
+async def approve_error_issue(
+    error_id: str,
+    approval: GitHubIssueApprovalRequest,
+    request: Request,
+) -> dict[str, Any]:
+    github_id = getattr(request.state, "github_id", None)
+    if not github_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    error_log = ErrorLog()
+    record = await error_log.get_status(error_id, github_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Error log not found.")
+    if record.get("github_issue"):
+        return record
+    if record.get("status") != "processed":
+        raise HTTPException(
+            status_code=409,
+            detail="Only processed error logs can open GitHub issues.",
+        )
+    if record.get("approval") != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="This error log is not pending approval.",
+        )
+
+    github_access_token = await User().get_github_access_token(github_id)
+    if not github_access_token:
+        raise HTTPException(
+            status_code=403,
+            detail="GitHub access token is not available. Please sign in again.",
+        )
+
+    issue = await create_github_issue(
+        github_access_token,
+        approval.repo,
+        build_issue_title(record),
+        build_issue_body(record),
+    )
+
+    updated = await error_log.mark_issue_opened(error_id, github_id, issue)
+    if updated is None:
+        latest = await error_log.get_status(error_id, github_id)
+        if latest and latest.get("github_issue"):
+            return latest
+        raise HTTPException(
+            status_code=409,
+            detail="GitHub issue was created but the error log could not be updated.",
+        )
+
+    return updated

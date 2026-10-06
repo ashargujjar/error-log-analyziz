@@ -29,6 +29,9 @@ class ErrorLog:
                 "analysis": None,
                 "incident": None,
                 "approval": "pending",
+                "github_issue": None,
+                "approved_at": None,
+                "approved_by": None,
                 "status": "pending",
                 "error_message": None,
                 "attempts": 0,
@@ -151,6 +154,9 @@ class ErrorLog:
                 "analysis": 1,
                 "incident": 1,
                 "approval": 1,
+                "github_issue": 1,
+                "approved_at": 1,
+                "approved_by": 1,
                 "error_message": 1,
                 "attempts": 1,
                 "created_at": 1,
@@ -164,6 +170,44 @@ class ErrorLog:
 
         document["error_id"] = str(document.pop("_id"))
         return document
+
+    async def mark_issue_opened(
+        self,
+        error_id: str,
+        github_id: str,
+        issue: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        try:
+            object_id = ObjectId(error_id)
+        except (InvalidId, TypeError):
+            return None
+
+        now = datetime.utcnow()
+        result = await self.collection.update_one(
+            {
+                "_id": object_id,
+                "github_id": github_id,
+                "status": "processed",
+                "approval": "pending",
+                "github_issue": None,
+            },
+            {
+                "$set": {
+                    "approval": "approved",
+                    "github_issue": {
+                        **issue,
+                        "created_at": now,
+                    },
+                    "approved_at": now,
+                    "approved_by": github_id,
+                    "updated_at": now,
+                }
+            },
+        )
+        if result.modified_count != 1:
+            return None
+
+        return await self.get_status(error_id, github_id)
 
     async def delete_for_user(
         self,
@@ -204,6 +248,9 @@ class ErrorLog:
                     "analysis": None,
                     "incident": None,
                     "approval": "pending",
+                    "github_issue": None,
+                    "approved_at": None,
+                    "approved_by": None,
                     "error_message": None,
                     "updated_at": now,
                     "processing_started_at": None,
@@ -233,6 +280,9 @@ class ErrorLog:
                     "analysis": 1,
                     "incident": 1,
                     "approval": 1,
+                    "github_issue": 1,
+                    "approved_at": 1,
+                    "approved_by": 1,
                     "status": 1,
                     "error_message": 1,
                     "attempts": 1,

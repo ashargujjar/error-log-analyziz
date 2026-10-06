@@ -61,6 +61,7 @@ Implemented routes:
 GET  /health
 GET  /auth/github/login
 GET  /auth/github/callback
+GET  /auth/github/repositories
 POST /auth/logout
 POST /api-keys
 GET  /api-keys
@@ -69,6 +70,7 @@ POST /errors
 GET  /errors
 GET  /errors/{error_id}
 DELETE /errors/{error_id}
+POST /errors/{error_id}/approve
 POST /errors/{error_id}/reprocess
 ```
 
@@ -340,6 +342,8 @@ GitHub OAuth login
 GitHub user session
 encrypted GitHub access token storage
 optional token access for analyzer source lookups
+repository selection for GitHub issue creation
+GitHub issue creation after human approval
 ```
 
 Not completed yet:
@@ -347,8 +351,6 @@ Not completed yet:
 ```text
 human approval endpoint
 frontend approval button connected to backend
-GitHub issue creation after approval
-GitHub issue URL saved back to MongoDB
 ```
 
 ## Run Locally
@@ -410,13 +412,11 @@ DEEPSEEK_API_KEY=
 The main remaining tasks are:
 
 ```text
-1. Add human approval endpoint.
-2. Connect frontend approval button.
-3. Create GitHub issue after approval.
-4. Save GitHub issue URL/status to MongoDB.
-5. Add stronger end-to-end tests.
-6. Add stronger SDK integration examples.
-7. Add Python SDK after JavaScript SDK is stable.
+1. Improve human approval history/audit UI.
+2. Add duplicate/grouped log handling before issue creation.
+3. Add stronger end-to-end tests.
+4. Add stronger SDK integration examples.
+5. Add Python SDK after JavaScript SDK is stable.
 ```
 
 ## Important Design Decisions

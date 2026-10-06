@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.responses import JSONResponse
 
 from models.user_model import User
-from schema.schema import GitHubOAuthAccount, UserSchema
+from schema.schema import GitHubOAuthAccount, GitHubRepositoryItem, UserSchema
 from utils.github_auth_utils import (
     auth_error_redirect,
     auth_success_redirect,
@@ -17,6 +17,7 @@ from utils.github_auth_utils import (
     oauth_cookie_secure,
     token_expires_at,
 )
+from utils.github_issue import list_issue_repositories
 
 
 async def github_login() -> RedirectResponse:
@@ -104,3 +105,19 @@ async def logout(
     response.delete_cookie("github_user_id")
     response.delete_cookie("github_oauth_state")
     return response
+
+
+async def list_github_repositories(
+    auth_session: str | None = Cookie(default=None),
+) -> list[GitHubRepositoryItem]:
+    user_model = User()
+    user = await user_model.get_user_for_session(auth_session)
+    if user is None:
+        return []
+
+    access_token = await user_model.get_github_access_token(user["github_id"])
+    if not access_token:
+        return []
+
+    repositories = await list_issue_repositories(access_token)
+    return [GitHubRepositoryItem(**repository) for repository in repositories]
