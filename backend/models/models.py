@@ -248,6 +248,8 @@ class ErrorLog:
                 "payload_content_type": content_type,
                 "error": None,
                 "analysis": None,
+                "incident": None,
+                "approval": "pending",
                 "status": "pending",
                 "error_message": None,
                 "attempts": 0,
@@ -302,6 +304,10 @@ class ErrorLog:
             return False
 
         now = datetime.utcnow()
+        incident = None
+        if analysis:
+            incident = analysis.get("aggregator")
+
         result = await self.collection.update_one(
             {"_id": object_id, "status": "processing"},
             {
@@ -309,6 +315,12 @@ class ErrorLog:
                     "status": "processed",
                     "error": structured_error,
                     "analysis": analysis,
+                    "incident": incident,
+                    "approval": (
+                        incident.get("approval", "pending")
+                        if isinstance(incident, dict)
+                        else "pending"
+                    ),
                     "error_message": None,
                     "updated_at": now,
                     "processed_at": now,
@@ -360,6 +372,8 @@ class ErrorLog:
                 "payload_content_type": 1,
                 "error": 1,
                 "analysis": 1,
+                "incident": 1,
+                "approval": 1,
                 "error_message": 1,
                 "attempts": 1,
                 "created_at": 1,

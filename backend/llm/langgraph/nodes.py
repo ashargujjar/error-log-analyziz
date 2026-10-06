@@ -132,10 +132,20 @@ def aggregator_node(state: ErrorWorkflowState) -> dict[str, Any]:
                 "system",
                 (
                     "You are the final error-analysis aggregator. Combine the "
-                    "four analyzer findings into one clear conclusion. Select "
-                    "the strongest relevant analyzer, or none if no analyzer "
-                    "has useful evidence. Use only the structured error and "
-                    "the analyzer findings. Do not invent evidence."
+                    "four analyzer findings into one user-facing incident state "
+                    "for saving to the database. Select the strongest relevant "
+                    "analyzer, or none if no analyzer has useful evidence. "
+                    "Set approval to pending unless a human has explicitly "
+                    "approved it. Use only the structured error and analyzer "
+                    "findings. Do not invent evidence.\n\n"
+                    "Severity rules: critical means outage, data loss, security "
+                    "breach, or widespread production failure; high means a major "
+                    "feature or integration is broken; medium means degraded or "
+                    "limited functionality; low means minor or unclear impact.\n\n"
+                    "traces_to_check must be built from evidence in the analyzer "
+                    "findings and structured error, such as file paths, functions, "
+                    "services, error messages, HTTP statuses, database names, or "
+                    "infrastructure resources."
                 ),
             ),
             (
