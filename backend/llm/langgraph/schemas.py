@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 AnalyzerName = Literal[
@@ -9,6 +9,36 @@ AnalyzerName = Literal[
     "infrastructure_analyzer",
     "external_api_analyzer",
 ]
+
+ANALYZER_NAMES = (
+    "code_analyzer",
+    "database_analyzer",
+    "infrastructure_analyzer",
+    "external_api_analyzer",
+)
+
+
+class SupervisorDecision(BaseModel):
+    selected_analyzers: list[AnalyzerName] = Field(
+        min_length=1,
+        max_length=4,
+        description=(
+            "The analyzer nodes that should run in parallel. Select only "
+            "analyzers relevant to the structured error."
+        ),
+    )
+    reason: str = Field(
+        min_length=1,
+        description="Short explanation for the selected analyzer nodes.",
+    )
+
+    @field_validator("selected_analyzers")
+    @classmethod
+    def remove_duplicates(
+        cls,
+        analyzers: list[AnalyzerName],
+    ) -> list[AnalyzerName]:
+        return list(dict.fromkeys(analyzers))
 
 
 class AnalyzerFinding(BaseModel):

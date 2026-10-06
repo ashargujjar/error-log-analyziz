@@ -9,6 +9,8 @@ from llm.langgraph.nodes import (
     database_analyzer_node,
     external_api_analyzer_node,
     infrastructure_analyzer_node,
+    route_selected_analyzers,
+    supervisor_router_node,
 )
 from llm.langgraph.state import ErrorWorkflowState
 
@@ -16,16 +18,18 @@ from llm.langgraph.state import ErrorWorkflowState
 @lru_cache(maxsize=1)
 def _get_error_workflow():
     workflow = StateGraph(ErrorWorkflowState)
+    workflow.add_node("supervisor_router", supervisor_router_node)
     workflow.add_node("code_analyzer", code_analyzer_node)
     workflow.add_node("database_analyzer", database_analyzer_node)
     workflow.add_node("infrastructure_analyzer", infrastructure_analyzer_node)
     workflow.add_node("external_api_analyzer", external_api_analyzer_node)
     workflow.add_node("aggregator", aggregator_node)
 
-    workflow.add_edge(START, "code_analyzer")
-    workflow.add_edge(START, "database_analyzer")
-    workflow.add_edge(START, "infrastructure_analyzer")
-    workflow.add_edge(START, "external_api_analyzer")
+    workflow.add_edge(START, "supervisor_router")
+    workflow.add_conditional_edges(
+        "supervisor_router",
+        route_selected_analyzers,
+    )
     workflow.add_edge("code_analyzer", "aggregator")
     workflow.add_edge("database_analyzer", "aggregator")
     workflow.add_edge("infrastructure_analyzer", "aggregator")
@@ -41,10 +45,16 @@ def run_error_workflow(structured_error: dict[str, Any]) -> dict[str, Any]:
     return {
         "structured_error": result.get("structured_error"),
         "analysis": {
-            "code_analyzer": result.get("code_analysis"),
-            "database_analyzer": result.get("database_analysis"),
-            "infrastructure_analyzer": result.get("infrastructure_analysis"),
-            "external_api_analyzer": result.get("external_api_analysis"),
+            "supervisor_router": {
+                "selected_analyzers": result.get("selected_analyzers", []),
+                "reason": result.get("supervisor_reason"),
+            },
+            **{
+                analyzer_name: result.get(
+                    f"{analyzer_name.replace('_analyzer', '')}_analysis"
+                )
+                for analyzer_name in result.get("selected_analyzers", [])
+            },
             "aggregator": result.get("aggregated_analysis"),
         },
     }

@@ -7,7 +7,12 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain_deepseek import ChatDeepSeek
 
-from llm.langgraph.schemas import AggregatedAnalysis, AnalyzerFinding
+from llm.langgraph.schemas import (
+    ANALYZER_NAMES,
+    AggregatedAnalysis,
+    AnalyzerFinding,
+    SupervisorDecision,
+)
 from llm.langgraph.state import ErrorWorkflowState
 
 
@@ -25,6 +30,100 @@ def _get_analysis_llm():
         api_key=api_key,
         temperature=0,
     )
+
+
+def _fallback_supervisor_decision(
+    structured_error: dict[str, Any],
+) -> SupervisorDecision:
+    error_type = structured_error.get("errorType")
+    selected = {
+        "code_error": ["code_analyzer"],
+        "database_error": ["database_analyzer"],
+        "infrastructure_error": ["infrastructure_analyzer"],
+        "external_api_error": ["external_api_analyzer"],
+        "network_error": ["infrastructure_analyzer"],
+        "configuration_error": [
+            "code_analyzer",
+            "infrastructure_analyzer",
+        ],
+        "authentication_error": [
+            "external_api_analyzer",
+            "infrastructure_analyzer",
+        ],
+        "rate_limit_error": ["external_api_analyzer"],
+        "dependency_error": ["code_analyzer"],
+        "unknown": list(ANALYZER_NAMES),
+    }.get(error_type, ["code_analyzer"])
+
+    return SupervisorDecision(
+        selected_analyzers=selected,
+        reason=(
+            "Fallback routing selected analyzers from the structured error "
+            f"category: {error_type or 'unknown'}."
+        ),
+    )
+
+
+def supervisor_router_node(state: ErrorWorkflowState) -> dict[str, Any]:
+    structured_error = state["structured_error"]
+    try:
+        supervisor = _get_analysis_llm().with_structured_output(
+            SupervisorDecision
+        )
+        decision = supervisor.invoke(
+            [
+                (
+                    "system",
+                    (
+                        "You are the supervisor router for an error-analysis "
+                        "workflow. The raw log has already been converted into "
+                        "structured_error. Select only the analyzer nodes that "
+                        "need to run. The selected nodes will run in parallel.\n\n"
+                        "Available analyzers:\n"
+                        "- code_analyzer: application bugs, exceptions, stack "
+                        "traces, source files, functions, and code logic\n"
+                        "- database_analyzer: database connections, queries, "
+                        "schemas, transactions, indexes, and storage\n"
+                        "- infrastructure_analyzer: servers, containers, hosts, "
+                        "deployments, cloud resources, and capacity\n"
+                        "- external_api_analyzer: third-party APIs, HTTP "
+                        "responses, credentials, quotas, and integrations\n\n"
+                        "Select the smallest set that can explain the error. "
+                        "Do not select all analyzers by default. Select multiple "
+                        "only when the structured evidence clearly spans those "
+                        "domains. Return a short routing reason."
+                    ),
+                ),
+                (
+                    "user",
+                    "Structured error:\n"
+                    + json.dumps(structured_error, ensure_ascii=False),
+                ),
+            ]
+        )
+    except Exception:
+        decision = _fallback_supervisor_decision(structured_error)
+
+    return {
+        "selected_analyzers": decision.selected_analyzers,
+        "supervisor_reason": decision.reason,
+    }
+
+
+def route_selected_analyzers(state: ErrorWorkflowState) -> list[Any]:
+    from langgraph.types import Send
+
+    return [
+        Send(
+            analyzer_name,
+            {
+                "structured_error": state["structured_error"],
+                "selected_analyzers": state["selected_analyzers"],
+                "supervisor_reason": state["supervisor_reason"],
+            },
+        )
+        for analyzer_name in state["selected_analyzers"]
+    ]
 
 
 def _run_analyzer(
@@ -120,10 +219,10 @@ def external_api_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
 
 def aggregator_node(state: ErrorWorkflowState) -> dict[str, Any]:
     findings = {
-        "code_analyzer": state["code_analysis"],
-        "database_analyzer": state["database_analysis"],
-        "infrastructure_analyzer": state["infrastructure_analysis"],
-        "external_api_analyzer": state["external_api_analysis"],
+        analyzer_name: state[
+            f"{analyzer_name.replace('_analyzer', '')}_analysis"
+        ]
+        for analyzer_name in state["selected_analyzers"]
     }
     aggregator = _get_analysis_llm().with_structured_output(AggregatedAnalysis)
     result = aggregator.invoke(
