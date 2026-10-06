@@ -2,7 +2,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from models.models import User
+from models.user_model import User
 
 
 PUBLIC_PATHS = {

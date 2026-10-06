@@ -68,6 +68,8 @@ DELETE /api-keys/{key_id}
 POST /errors
 GET  /errors
 GET  /errors/{error_id}
+DELETE /errors/{error_id}
+POST /errors/{error_id}/reprocess
 ```
 
 The `POST /errors` endpoint accepts raw error log text. It does not expect structured JSON from the sender.
@@ -264,6 +266,8 @@ raw log evidence display
 impact, risks, recommendation, and traces display
 history page
 detail page
+error log deletion from dashboard
+failed log re-execution from dashboard
 ```
 
 The frontend no longer depends on mock incidents for the main dashboard flow.
@@ -411,7 +415,7 @@ The main remaining tasks are:
 3. Create GitHub issue after approval.
 4. Save GitHub issue URL/status to MongoDB.
 5. Add stronger end-to-end tests.
-6. Prepare and publish the JavaScript SDK to npm.
+6. Add stronger SDK integration examples.
 7. Add Python SDK after JavaScript SDK is stable.
 ```
 

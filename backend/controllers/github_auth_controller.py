@@ -4,7 +4,7 @@ from fastapi import Cookie
 from fastapi.responses import RedirectResponse
 from fastapi.responses import JSONResponse
 
-from models.models import User
+from models.user_model import User
 from schema.schema import GitHubOAuthAccount, UserSchema
 from utils.github_auth_utils import (
     auth_error_redirect,

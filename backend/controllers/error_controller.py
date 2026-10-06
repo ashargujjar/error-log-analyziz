@@ -1,5 +1,4 @@
 import json
-import json
 from typing import Any
 
 from fastapi import BackgroundTasks, HTTPException, Query, Request
@@ -7,7 +6,8 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from llm.langgraph import run_error_workflow
-from models.models import ErrorLog, User
+from models.error_log_model import ErrorLog
+from models.user_model import User
 from utils.dataExtraction import extractErrorData
 
 
@@ -103,3 +103,48 @@ async def list_errors(
         raise HTTPException(status_code=401, detail="Authentication required.")
 
     return await ErrorLog().list_for_user(github_id, limit)
+
+
+async def delete_error(
+    error_id: str,
+    request: Request,
+) -> dict[str, str]:
+    github_id = getattr(request.state, "github_id", None)
+    if not github_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    deleted = await ErrorLog().delete_for_user(error_id, github_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Error log not found.")
+
+    return {"message": "Error log deleted.", "error_id": error_id}
+
+
+async def reprocess_error(
+    error_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    github_id = getattr(request.state, "github_id", None)
+    if not github_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    error_log = ErrorLog()
+    existing = await error_log.get_status(error_id, github_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Error log not found.")
+    if existing.get("status") != "failed":
+        raise HTTPException(
+            status_code=409,
+            detail="Only failed error logs can be re-executed.",
+        )
+
+    queued = await error_log.queue_failed_for_reprocess(error_id, github_id)
+    if queued is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Error log could not be queued for reprocessing.",
+        )
+
+    background_tasks.add_task(process_error, error_id)
+    return queued

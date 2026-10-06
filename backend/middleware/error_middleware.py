@@ -3,7 +3,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from models.models import APIKey
+from models.api_key_model import APIKey
 
 
 ERROR_PATH = "/errors"

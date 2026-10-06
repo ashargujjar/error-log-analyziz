@@ -43,6 +43,7 @@ import Logout from "@mui/icons-material/Logout";
 import NotificationsActive from "@mui/icons-material/NotificationsActive";
 import OpenInNew from "@mui/icons-material/OpenInNew";
 import Add from "@mui/icons-material/Add";
+import Replay from "@mui/icons-material/Replay";
 import Rule from "@mui/icons-material/Rule";
 import Shield from "@mui/icons-material/Shield";
 import Timeline from "@mui/icons-material/Timeline";
@@ -177,6 +178,7 @@ function mapErrorRecord(record) {
     analysis,
     approval: record.approval || incident.approval || "pending",
     canApprove: false,
+    canReprocess: record.status === "failed",
   };
 }
 
@@ -410,6 +412,57 @@ function App() {
     );
   };
 
+  const deleteIncident = async (incidentId) => {
+    if (!window.confirm("Delete this error log?")) {
+      return;
+    }
+
+    setIncidentsError("");
+    const response = await fetch(`${API_BASE_URL}/errors/${incidentId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      setIncidentsError(body.detail || "Could not delete error log.");
+      return;
+    }
+
+    setIncidents((currentIncidents) =>
+      currentIncidents.filter((incident) => incident.id !== incidentId),
+    );
+    if (selectedIncidentId === incidentId) {
+      setSelectedIncidentId(null);
+      setPage("history");
+    }
+  };
+
+  const reprocessIncident = async (incidentId) => {
+    setIncidentsError("");
+    const response = await fetch(
+      `${API_BASE_URL}/errors/${incidentId}/reprocess`,
+      {
+        method: "POST",
+        credentials: "include",
+      },
+    );
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      setIncidentsError(body.detail || "Could not re-execute error log.");
+      return;
+    }
+
+    const record = await response.json();
+    const updatedIncident = mapErrorRecord(record);
+    setIncidents((currentIncidents) =>
+      currentIncidents.map((incident) =>
+        incident.id === updatedIncident.id ? updatedIncident : incident,
+      ),
+    );
+  };
+
   if (!isAuthenticated) {
     return (
       <ThemeProvider theme={theme}>
@@ -444,10 +497,15 @@ function App() {
             <AlertsPage
               incidents={incidents}
               onOpenDetail={openDetail}
+              onDelete={deleteIncident}
+              onReprocess={reprocessIncident}
             />
           )}
           {page === "history" && (
-            <HistoryPage incidents={incidents} onOpenDetail={openDetail} />
+            <HistoryPage
+              incidents={incidents}
+              onOpenDetail={openDetail}
+            />
           )}
           {page === "api-keys" && (
             <APIKeysPage
@@ -462,6 +520,8 @@ function App() {
             <IncidentDetail
               incident={selectedIncident}
               onBack={() => setPage("history")}
+              onDelete={deleteIncident}
+              onReprocess={reprocessIncident}
             />
           )}
           {page === "detail" && !selectedIncident && (
@@ -848,7 +908,7 @@ function TopBar({ pendingCount }) {
   );
 }
 
-function AlertsPage({ incidents, onOpenDetail }) {
+function AlertsPage({ incidents, onOpenDetail, onDelete, onReprocess }) {
   const awaitingApproval = incidents.filter(
     (incident) => incident.status === "Awaiting approval",
   );
@@ -887,6 +947,8 @@ function AlertsPage({ incidents, onOpenDetail }) {
             key={incident.id}
             incident={incident}
             onOpenDetail={onOpenDetail}
+            onDelete={onDelete}
+            onReprocess={onReprocess}
             approvalMode
           />
         ))}
@@ -908,6 +970,8 @@ function AlertsPage({ incidents, onOpenDetail }) {
             key={incident.id}
             incident={incident}
             onOpenDetail={onOpenDetail}
+            onDelete={onDelete}
+            onReprocess={onReprocess}
           />
         ))}
       </Stack>
@@ -974,7 +1038,7 @@ function HistoryPage({ incidents, onOpenDetail }) {
   );
 }
 
-function IncidentDetail({ incident, onBack }) {
+function IncidentDetail({ incident, onBack, onDelete, onReprocess }) {
   return (
     <Stack spacing={2.5}>
       <Button
@@ -1006,6 +1070,23 @@ function IncidentDetail({ incident, onBack }) {
           </Box>
           <Stack spacing={1} alignItems={{ xs: "stretch", md: "flex-end" }}>
             <Chip icon={<Timeline />} label={`${incident.confidence}% AI confidence`} />
+            {incident.canReprocess && (
+              <Button
+                variant="outlined"
+                startIcon={<Replay />}
+                onClick={() => onReprocess(incident.id)}
+              >
+                Re-execute
+              </Button>
+            )}
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteOutline />}
+              onClick={() => onDelete(incident.id)}
+            >
+              Delete
+            </Button>
             {incident.canApprove && incident.status === "Awaiting approval" ? (
               <Button
                 variant="contained"
@@ -1100,7 +1181,13 @@ function IncidentDetail({ incident, onBack }) {
   );
 }
 
-function IncidentCard({ incident, onOpenDetail, approvalMode = false }) {
+function IncidentCard({
+  incident,
+  onOpenDetail,
+  onDelete,
+  onReprocess,
+  approvalMode = false,
+}) {
   return (
     <Paper elevation={0} className="incident-card">
       <Stack
@@ -1147,6 +1234,23 @@ function IncidentCard({ incident, onOpenDetail, approvalMode = false }) {
             onClick={() => onOpenDetail(incident.id)}
           >
             Details
+          </Button>
+          {incident.canReprocess && (
+            <Button
+              variant="outlined"
+              startIcon={<Replay />}
+              onClick={() => onReprocess(incident.id)}
+            >
+              Re-execute
+            </Button>
+          )}
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteOutline />}
+            onClick={() => onDelete(incident.id)}
+          >
+            Delete
           </Button>
           {incident.canApprove && incident.status === "Awaiting approval" && (
             <Button

@@ -1,7 +1,7 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from models.models import APIKey
+from models.api_key_model import APIKey
 from schema.schema import APIKeyCreateRequest, APIKeyCreatedResponse, APIKeyHistoryItem
 
 
