@@ -49,7 +49,9 @@ def extractErrorData(
                     "Use unknown for a general/unclassifiable error. Do not invent "
                     "a category or use general_error. The errorType field must be "
                     "one of the exact category names above. The description field "
-                    "must explain the specific error in plain language. "
+                    "must explain the specific error in plain language. If the "
+                    "log includes a GitHub repository URL, branch, tag, or commit "
+                    "SHA, preserve it in repositoryUrl or repositoryRef. "
                     "Preserve source-code evidence when it is present, and do "
                     "not invent repository or source-code details."
                 ),

@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from llm.langgraph import run_error_workflow
-from models.models import ErrorLog
+from models.models import ErrorLog, User
 from utils.dataExtraction import extractErrorData
 
 
@@ -25,9 +25,13 @@ async def process_error(error_id: str) -> None:
             extractErrorData,
             raw_log,
         )
+        github_access_token = await User().get_github_access_token(
+            record["github_id"]
+        )
         workflow_result = await run_in_threadpool(
             run_error_workflow,
             structured_error.model_dump(),
+            github_access_token,
         )
 
         await error_log.mark_processed(

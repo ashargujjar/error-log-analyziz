@@ -13,6 +13,7 @@ from schema.schema import (
     GitHubOAuthAccount,
     UserSchema,
 )
+from utils.github_auth_utils import decrypt_token
 
 
 class User:
@@ -147,6 +148,23 @@ class User:
             session_token.encode("utf-8")
         ).hexdigest()
         await self.sessions_collection.delete_one({"session_hash": session_hash})
+
+    async def get_github_access_token(self, github_id: str) -> str | None:
+        user = await self.users_collection.find_one(
+            {"github_id": github_id},
+            {"_id": 1},
+        )
+        if user is None:
+            return None
+
+        account = await self.github_accounts_collection.find_one(
+            {"user_id": str(user["_id"])},
+            {"access_token_encrypted": 1},
+        )
+        if not account or not account.get("access_token_encrypted"):
+            return None
+
+        return decrypt_token(account["access_token_encrypted"])
 
 
 class APIKey:

@@ -111,6 +111,14 @@ class ErrorFileEvidence(BaseModel):
 
 # Error information extracted from an error description.
 class errorStructureData(BaseModel):
+    repositoryUrl: Optional[str] = Field(
+        default=None,
+        description="GitHub repository URL found in the error log, if present.",
+    )
+    repositoryRef: Optional[str] = Field(
+        default=None,
+        description="Branch, tag, or commit SHA found in the error log, if present.",
+    )
     errorFiles: Optional[list[ErrorFileEvidence]] = Field(
         default=None,
         description="Source files and line-level evidence associated with the error.",

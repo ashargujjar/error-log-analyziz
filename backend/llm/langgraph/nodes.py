@@ -14,6 +14,7 @@ from llm.langgraph.schemas import (
     SupervisorDecision,
 )
 from llm.langgraph.state import ErrorWorkflowState
+from utils.github_code import fetch_github_file
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -118,6 +119,7 @@ def route_selected_analyzers(state: ErrorWorkflowState) -> list[Any]:
             analyzer_name,
             {
                 "structured_error": state["structured_error"],
+                "github_access_token": state.get("github_access_token"),
                 "selected_analyzers": state["selected_analyzers"],
                 "supervisor_reason": state["supervisor_reason"],
             },
@@ -165,17 +167,155 @@ def _run_analyzer(
         ).model_dump()
 
 
-def code_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
-    return {
-        "code_analysis": _run_analyzer(
-            "Code Analyzer",
-            (
-                "application bugs, incorrect logic, exceptions, stack traces, "
-                "source files, line numbers, functions, classes, and code fixes"
-            ),
-            state["structured_error"],
+def _code_evidence(
+    structured_error: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    error_files = structured_error.get("errorFiles") or []
+    files = [
+        error_file
+        for error_file in error_files
+        if isinstance(error_file, dict) and error_file.get("filePath")
+    ]
+    traces = [
+        trace
+        for trace in (
+            structured_error.get("functionClassName"),
+            structured_error.get("errorMessages"),
         )
-    }
+        if isinstance(trace, str) and trace.strip()
+    ]
+    return files, traces
+
+
+def _load_code_context(
+    structured_error: dict[str, Any],
+    github_access_token: str | None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    repository_url = structured_error.get("repositoryUrl")
+    repository_ref = structured_error.get("repositoryRef")
+    error_files, _ = _code_evidence(structured_error)
+
+    contexts = []
+    loaded_files = []
+    for error_file in error_files[:3]:
+        file_path = error_file["filePath"]
+        context = fetch_github_file(
+            file_path=file_path,
+            repository_url=repository_url,
+            repository_ref=repository_ref,
+            access_token=github_access_token,
+        )
+        if context.get("available"):
+            contexts.append(
+                {
+                    "file": file_path,
+                    "line": error_file.get("lineNumber"),
+                    "content": context.get("content", ""),
+                }
+            )
+            loaded_files.append(file_path)
+
+    return contexts, loaded_files
+
+
+def _run_code_analyzer(state: ErrorWorkflowState) -> dict[str, Any]:
+    structured_error = state["structured_error"]
+    error_files, traces = _code_evidence(structured_error)
+    has_code_evidence = bool(
+        error_files
+        or structured_error.get("functionClassName")
+        or structured_error.get("errorType")
+        in {"code_error", "dependency_error"}
+    )
+
+    if not has_code_evidence:
+        return AnalyzerFinding(
+            relevant=False,
+            confidence=0.05,
+            finding=(
+                "No source-code evidence was found in the structured error, "
+                "so a code-level cause cannot be confirmed."
+            ),
+            evidence=["No file, line, function, class, or code error category."],
+            recommended_action=(
+                "Capture the stack trace, source file, line number, or function "
+                "name before investigating a code defect."
+            ),
+            traces_to_check=traces,
+        ).model_dump()
+
+    contexts, loaded_files = _load_code_context(
+        structured_error,
+        state.get("github_access_token"),
+    )
+    source_context = (
+        json.dumps(contexts, ensure_ascii=False)
+        if contexts
+        else "No repository source code was available; use only the evidence below."
+    )
+
+    try:
+        analyzer = _get_analysis_llm().with_structured_output(AnalyzerFinding)
+        result = analyzer.invoke(
+            [
+                (
+                    "system",
+                    (
+                        "You are the Code Analyzer. Follow this workflow exactly:\n"
+                        "1. Check errorType and source-code evidence.\n"
+                        "2. Inspect files, lines, functions, classes, and stack traces.\n"
+                        "3. Find the most likely code problem.\n"
+                        "4. Return a code finding.\n\n"
+                        "Analyze only the structured error and optional repository "
+                        "source context. Do not invent code, files, line numbers, "
+                        "or fixes. If repository source is unavailable, clearly "
+                        "say that the finding is based on log evidence only. "
+                        "Use traces_to_check for exact files, functions, classes, "
+                        "messages, and lines that an engineer should inspect."
+                    ),
+                ),
+                (
+                    "user",
+                    (
+                        "Structured error:\n"
+                        + json.dumps(structured_error, ensure_ascii=False)
+                        + "\n\nRepository source context:\n"
+                        + source_context
+                    ),
+                ),
+            ]
+        )
+        finding = result.model_dump()
+        finding["source_context_available"] = bool(contexts)
+        finding["source_context_files"] = loaded_files
+        finding["traces_to_check"] = list(
+            dict.fromkeys(
+                [
+                    *finding.get("traces_to_check", []),
+                    *[error_file["filePath"] for error_file in error_files],
+                    *traces,
+                ]
+            )
+        )
+        return AnalyzerFinding(**finding).model_dump()
+    except Exception as exc:
+        return AnalyzerFinding(
+            relevant=True,
+            confidence=0.2,
+            finding=f"Code analysis could not complete: {exc}",
+            evidence=traces,
+            recommended_action=(
+                "Inspect the listed source files and stack-trace location manually."
+            ),
+            source_context_available=bool(contexts),
+            source_context_files=loaded_files,
+            traces_to_check=traces
+            + [error_file["filePath"] for error_file in error_files],
+        ).model_dump()
+
+
+def code_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
+    return {"code_analysis": _run_code_analyzer(state)}
 
 
 def database_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:

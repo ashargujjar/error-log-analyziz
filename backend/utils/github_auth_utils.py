@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 from fastapi.responses import RedirectResponse
 
@@ -127,6 +127,20 @@ def encrypt_token(token: str) -> str:
             "ascii"
         )
     except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=500,
+            detail="GITHUB_TOKEN_ENCRYPTION_KEY must be a valid Fernet key.",
+        )
+
+
+def decrypt_token(encrypted_token: str) -> str:
+    key = required_env("GITHUB_TOKEN_ENCRYPTION_KEY")
+
+    try:
+        return Fernet(key.encode("ascii")).decrypt(
+            encrypted_token.encode("ascii")
+        ).decode("utf-8")
+    except (InvalidToken, ValueError, TypeError):
         raise HTTPException(
             status_code=500,
             detail="GITHUB_TOKEN_ENCRYPTION_KEY must be a valid Fernet key.",

@@ -3,6 +3,7 @@ from typing import Any, TypedDict
 
 class ErrorWorkflowState(TypedDict, total=False):
     structured_error: dict[str, Any]
+    github_access_token: str | None
     selected_analyzers: list[str]
     supervisor_reason: str
     code_analysis: dict[str, Any]

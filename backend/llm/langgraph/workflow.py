@@ -38,9 +38,15 @@ def _get_error_workflow():
     return workflow.compile()
 
 
-def run_error_workflow(structured_error: dict[str, Any]) -> dict[str, Any]:
+def run_error_workflow(
+    structured_error: dict[str, Any],
+    github_access_token: str | None = None,
+) -> dict[str, Any]:
     result = _get_error_workflow().invoke(
-        {"structured_error": structured_error}
+        {
+            "structured_error": structured_error,
+            "github_access_token": github_access_token,
+        }
     )
     return {
         "structured_error": result.get("structured_error"),

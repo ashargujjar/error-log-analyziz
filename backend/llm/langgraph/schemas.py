@@ -61,6 +61,18 @@ class AnalyzerFinding(BaseModel):
         default=None,
         description="Recommended next action when this analyzer is relevant.",
     )
+    source_context_available: bool = Field(
+        default=False,
+        description="Whether repository source code was available to the analyzer.",
+    )
+    source_context_files: list[str] = Field(
+        default_factory=list,
+        description="Repository files loaded for analysis.",
+    )
+    traces_to_check: list[str] = Field(
+        default_factory=list,
+        description="Specific code traces, files, or functions to inspect.",
+    )
 
 
 class AggregatedAnalysis(BaseModel):
