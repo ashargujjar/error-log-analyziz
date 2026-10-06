@@ -46,22 +46,139 @@ import Add from "@mui/icons-material/Add";
 import Rule from "@mui/icons-material/Rule";
 import Shield from "@mui/icons-material/Shield";
 import Timeline from "@mui/icons-material/Timeline";
-import { initialIncidents } from "./data/incidents.js";
 
 const severityColor = {
   Critical: "error",
   High: "warning",
   Medium: "info",
   Low: "success",
+  Unknown: "default",
 };
 
 const statusColor = {
   "Awaiting approval": "warning",
   "Issue opened": "success",
+  Approved: "success",
+  Processed: "success",
+  Processing: "info",
+  "Pending processing": "default",
+  "Processing failed": "error",
   Resolved: "default",
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+
+function labelCase(value, fallback = "Unknown") {
+  if (!value) {
+    return fallback;
+  }
+
+  return String(value)
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatDateValue(value) {
+  if (!value) {
+    return "Unknown";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function recordStatus(record) {
+  if (record.status === "pending") {
+    return "Pending processing";
+  }
+  if (record.status === "processing") {
+    return "Processing";
+  }
+  if (record.status === "failed") {
+    return "Processing failed";
+  }
+  if (record.approval === "pending") {
+    return "Awaiting approval";
+  }
+  if (record.approval === "approved") {
+    return "Approved";
+  }
+  return "Processed";
+}
+
+function mapErrorRecord(record) {
+  const structuredError = record.error || {};
+  const incident = record.incident || {};
+  const analysis = record.analysis || {};
+  const rawLog =
+    typeof record.payload === "string"
+      ? record.payload
+      : JSON.stringify(record.payload || "", null, 2);
+  const logLines = rawLog.split(/\r?\n/).filter((line) => line.trim());
+  const errorType = labelCase(structuredError.errorType, "Unknown error");
+  const title =
+    incident.title ||
+    structuredError.errorMessages?.split(/\r?\n/)[0] ||
+    `${errorType} detected`;
+  const confidence = Number(incident.ai_confidence_score);
+  const timeline = [
+    `${formatDateValue(record.created_at)} - Error log received`,
+  ];
+
+  if (record.processing_started_at) {
+    timeline.push(
+      `${formatDateValue(record.processing_started_at)} - AI processing started`,
+    );
+  }
+  if (record.processed_at) {
+    timeline.push(
+      `${formatDateValue(record.processed_at)} - Analysis completed`,
+    );
+  }
+  if (record.error_message) {
+    timeline.push(`Processing failed - ${record.error_message}`);
+  }
+
+  return {
+    id: record.error_id,
+    title,
+    service: record.source_name || "Incoming error log",
+    severity: labelCase(incident.severity, "Unknown"),
+    status: recordStatus(record),
+    detectedAt: formatDateValue(record.created_at),
+    environment: "Unknown",
+    confidence: Number.isFinite(confidence) ? Math.round(confidence * 100) : 0,
+    owner: record.source_name || "Unassigned",
+    gitHubIssue: null,
+    summary:
+      incident.description ||
+      structuredError.description ||
+      "The AI analysis is not available yet.",
+    signal:
+      structuredError.errorMessages ||
+      structuredError.errorType ||
+      "No structured error message available.",
+    impact: incident.impact || "Impact is not available yet.",
+    recommendation:
+      incident.recommendation || "Recommendation is not available yet.",
+    risks: incident.risks || [],
+    tracesToCheck: incident.traces_to_check || [],
+    timeline,
+    logs: logLines.length ? logLines : ["No raw log content available."],
+    rawLog,
+    structuredError,
+    analysis,
+    approval: record.approval || incident.approval || "pending",
+    canApprove: false,
+  };
+}
 
 const theme = createTheme({
   palette: {
@@ -131,7 +248,9 @@ function App() {
   );
   const [page, setPage] = useState("alerts");
   const [selectedIncidentId, setSelectedIncidentId] = useState(null);
-  const [incidents, setIncidents] = useState(initialIncidents);
+  const [incidents, setIncidents] = useState([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
+  const [incidentsError, setIncidentsError] = useState("");
   const [apiKeys, setApiKeys] = useState([]);
   const [apiKeysLoading, setApiKeysLoading] = useState(false);
   const [apiKeysError, setApiKeysError] = useState("");
@@ -146,6 +265,48 @@ function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    let active = true;
+    setIncidentsLoading(true);
+    setIncidentsError("");
+
+    fetch(`${API_BASE_URL}/errors`, { credentials: "include" })
+      .then(async (response) => {
+        if (response.status === 401) {
+          sessionStorage.removeItem("github_authenticated");
+          setIsAuthenticated(false);
+          throw new Error("Your session has expired. Please sign in again.");
+        }
+        if (!response.ok) {
+          throw new Error("Could not load GitHub error logs.");
+        }
+        return response.json();
+      })
+      .then((records) => {
+        if (active) {
+          setIncidents(records.map(mapErrorRecord));
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setIncidentsError(error.message);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIncidentsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (page !== "api-keys") {
@@ -192,20 +353,6 @@ function App() {
   const awaitingApproval = incidents.filter(
     (incident) => incident.status === "Awaiting approval",
   );
-
-  const approveIssue = (incidentId) => {
-    setIncidents((currentIncidents) =>
-      currentIncidents.map((incident) =>
-        incident.id === incidentId
-          ? {
-              ...incident,
-              status: "Issue opened",
-              gitHubIssue: `GH-${Math.floor(8500 + Math.random() * 300)}`,
-            }
-          : incident,
-      ),
-    );
-  };
 
   const openDetail = (incidentId) => {
     setSelectedIncidentId(incidentId);
@@ -291,10 +438,11 @@ function App() {
         />
         <Box component="main" className="main-content">
           <TopBar pendingCount={awaitingApproval.length} />
+          {incidentsLoading && <LinearProgress />}
+          {incidentsError && <Alert severity="error">{incidentsError}</Alert>}
           {page === "alerts" && (
             <AlertsPage
               incidents={incidents}
-              onApprove={approveIssue}
               onOpenDetail={openDetail}
             />
           )}
@@ -313,7 +461,6 @@ function App() {
           {page === "detail" && selectedIncident && (
             <IncidentDetail
               incident={selectedIncident}
-              onApprove={approveIssue}
               onBack={() => setPage("history")}
             />
           )}
@@ -701,7 +848,7 @@ function TopBar({ pendingCount }) {
   );
 }
 
-function AlertsPage({ incidents, onApprove, onOpenDetail }) {
+function AlertsPage({ incidents, onOpenDetail }) {
   const awaitingApproval = incidents.filter(
     (incident) => incident.status === "Awaiting approval",
   );
@@ -739,7 +886,6 @@ function AlertsPage({ incidents, onApprove, onOpenDetail }) {
           <IncidentCard
             key={incident.id}
             incident={incident}
-            onApprove={onApprove}
             onOpenDetail={onOpenDetail}
             approvalMode
           />
@@ -749,13 +895,18 @@ function AlertsPage({ incidents, onApprove, onOpenDetail }) {
       <Stack spacing={2}>
         <SectionHeader
           title="Active alert stream"
-          subtitle="Live-looking frontend data for the detection console."
+          subtitle="Raw GitHub-connected logs and their AI analysis."
         />
+        {incidents.length === 0 && (
+          <EmptyState
+            title="No error logs yet"
+            body="Logs sent through one of your API keys will appear here after they are received."
+          />
+        )}
         {incidents.slice(0, 3).map((incident) => (
           <IncidentCard
             key={incident.id}
             incident={incident}
-            onApprove={onApprove}
             onOpenDetail={onOpenDetail}
           />
         ))}
@@ -772,6 +923,12 @@ function HistoryPage({ incidents, onOpenDetail }) {
         subtitle="Open any error to view details, evidence, impact, and the generated response plan."
       />
       <Paper elevation={0} className="history-list">
+        {incidents.length === 0 && (
+          <EmptyState
+            title="No error history"
+            body="Processed and pending logs will appear here."
+          />
+        )}
         {incidents.map((incident, index) => (
           <Box key={incident.id}>
             <ListItemButton
@@ -817,7 +974,7 @@ function HistoryPage({ incidents, onOpenDetail }) {
   );
 }
 
-function IncidentDetail({ incident, onApprove, onBack }) {
+function IncidentDetail({ incident, onBack }) {
   return (
     <Stack spacing={2.5}>
       <Button
@@ -849,20 +1006,19 @@ function IncidentDetail({ incident, onApprove, onBack }) {
           </Box>
           <Stack spacing={1} alignItems={{ xs: "stretch", md: "flex-end" }}>
             <Chip icon={<Timeline />} label={`${incident.confidence}% AI confidence`} />
-            {incident.status === "Awaiting approval" ? (
+            {incident.canApprove && incident.status === "Awaiting approval" ? (
               <Button
                 variant="contained"
                 color="secondary"
                 startIcon={<GitHub />}
-                onClick={() => onApprove(incident.id)}
               >
                 Approve GitHub issue
               </Button>
             ) : (
               <Chip
-                color="success"
+                color={statusColor[incident.status] || "default"}
                 icon={<CheckCircle />}
-                label={incident.gitHubIssue || "Completed"}
+                label={incident.gitHubIssue || incident.status}
               />
             )}
           </Stack>
@@ -880,6 +1036,30 @@ function IncidentDetail({ incident, onApprove, onBack }) {
             <Typography color="text.secondary">{incident.impact}</Typography>
             <Typography variant="subtitle2">Recommendation</Typography>
             <Typography color="text.secondary">{incident.recommendation}</Typography>
+            {incident.risks.length > 0 && (
+              <>
+                <Typography variant="subtitle2">Risks</Typography>
+                <Stack spacing={0.75}>
+                  {incident.risks.map((risk) => (
+                    <Typography color="text.secondary" key={risk}>
+                      • {risk}
+                    </Typography>
+                  ))}
+                </Stack>
+              </>
+            )}
+            {incident.tracesToCheck.length > 0 && (
+              <>
+                <Typography variant="subtitle2">Traces to check</Typography>
+                <Stack spacing={0.75}>
+                  {incident.tracesToCheck.map((trace) => (
+                    <Box component="code" className="log-line" key={trace}>
+                      {trace}
+                    </Box>
+                  ))}
+                </Stack>
+              </>
+            )}
           </DetailPanel>
         </Grid>
         <Grid item xs={12} md={5}>
@@ -920,7 +1100,7 @@ function IncidentDetail({ incident, onApprove, onBack }) {
   );
 }
 
-function IncidentCard({ incident, onApprove, onOpenDetail, approvalMode = false }) {
+function IncidentCard({ incident, onOpenDetail, approvalMode = false }) {
   return (
     <Paper elevation={0} className="incident-card">
       <Stack
@@ -968,12 +1148,11 @@ function IncidentCard({ incident, onApprove, onOpenDetail, approvalMode = false 
           >
             Details
           </Button>
-          {incident.status === "Awaiting approval" && (
+          {incident.canApprove && incident.status === "Awaiting approval" && (
             <Button
               variant="contained"
               color="secondary"
               startIcon={<GitHub />}
-              onClick={() => onApprove(incident.id)}
             >
               Approve
             </Button>

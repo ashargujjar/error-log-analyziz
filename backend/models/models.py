@@ -325,6 +325,8 @@ class ErrorLog:
         incident = None
         if analysis:
             incident = analysis.get("aggregator")
+            if isinstance(incident, dict):
+                incident = {**incident, "approval": "pending"}
 
         result = await self.collection.update_one(
             {"_id": object_id, "status": "processing"},
@@ -334,11 +336,7 @@ class ErrorLog:
                     "error": structured_error,
                     "analysis": analysis,
                     "incident": incident,
-                    "approval": (
-                        incident.get("approval", "pending")
-                        if isinstance(incident, dict)
-                        else "pending"
-                    ),
+                    "approval": "pending",
                     "error_message": None,
                     "updated_at": now,
                     "processed_at": now,
@@ -405,3 +403,39 @@ class ErrorLog:
 
         document["error_id"] = str(document.pop("_id"))
         return document
+
+    async def list_for_user(
+        self,
+        github_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        cursor = (
+            self.collection.find(
+                {"github_id": github_id},
+                {
+                    "_id": 1,
+                    "source_name": 1,
+                    "payload": 1,
+                    "payload_content_type": 1,
+                    "error": 1,
+                    "analysis": 1,
+                    "incident": 1,
+                    "approval": 1,
+                    "status": 1,
+                    "error_message": 1,
+                    "attempts": 1,
+                    "created_at": 1,
+                    "updated_at": 1,
+                    "processing_started_at": 1,
+                    "processed_at": 1,
+                },
+            )
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+
+        records = []
+        async for document in cursor:
+            document["error_id"] = str(document.pop("_id"))
+            records.append(document)
+        return records

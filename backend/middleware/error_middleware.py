@@ -11,10 +11,7 @@ ERROR_PATH = "/errors"
 
 class ErrorAPIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        is_error_path = request.url.path == ERROR_PATH or request.url.path.startswith(
-            f"{ERROR_PATH}/"
-        )
-        if request.method not in {"POST", "GET"} or not is_error_path:
+        if request.method != "POST" or request.url.path != ERROR_PATH:
             return await call_next(request)
 
         raw_key = self._authorization_key(request.headers.get("Authorization"))
@@ -37,9 +34,6 @@ class ErrorAPIKeyMiddleware(BaseHTTPMiddleware):
 
         request.state.github_id = user["github_id"]
         request.state.api_key_name = user["name"]
-
-        if request.method == "GET":
-            return await call_next(request)
 
         return await call_next(request)
 

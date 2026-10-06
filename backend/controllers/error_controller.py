@@ -1,7 +1,8 @@
 import json
+import json
 from typing import Any
 
-from fastapi import BackgroundTasks, HTTPException, Request
+from fastapi import BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -91,3 +92,14 @@ async def get_error_status(
         raise HTTPException(status_code=404, detail="Error log not found.")
 
     return status
+
+
+async def list_errors(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict[str, Any]]:
+    github_id = getattr(request.state, "github_id", None)
+    if not github_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    return await ErrorLog().list_for_user(github_id, limit)
