@@ -5,6 +5,7 @@ from fastapi import BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from llm.langgraph import run_error_workflow
 from models.models import ErrorLog
 from utils.dataExtraction import extractErrorData
 
@@ -24,7 +25,16 @@ async def process_error(error_id: str) -> None:
             extractErrorData,
             raw_log,
         )
-        await error_log.mark_processed(error_id, structured_error.model_dump())
+        workflow_result = await run_in_threadpool(
+            run_error_workflow,
+            structured_error.model_dump(),
+        )
+
+        await error_log.mark_processed(
+            error_id,
+            workflow_result["structured_error"],
+            workflow_result["analysis"],
+        )
     except Exception as exc:
         await error_log.mark_failed(error_id, str(exc))
 

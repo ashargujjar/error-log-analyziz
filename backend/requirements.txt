@@ -5,3 +5,4 @@ httpx
 cryptography
 python-dotenv
 langchain_deepseek
+langgraph

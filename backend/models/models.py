@@ -247,6 +247,7 @@ class ErrorLog:
                 "payload": payload,
                 "payload_content_type": content_type,
                 "error": None,
+                "analysis": None,
                 "status": "pending",
                 "error_message": None,
                 "attempts": 0,
@@ -293,6 +294,7 @@ class ErrorLog:
         self,
         error_id: str,
         structured_error: dict[str, Any],
+        analysis: dict[str, Any] | None = None,
     ) -> bool:
         try:
             object_id = ObjectId(error_id)
@@ -306,6 +308,7 @@ class ErrorLog:
                 "$set": {
                     "status": "processed",
                     "error": structured_error,
+                    "analysis": analysis,
                     "error_message": None,
                     "updated_at": now,
                     "processed_at": now,
@@ -314,7 +317,11 @@ class ErrorLog:
         )
         return result.modified_count == 1
 
-    async def mark_failed(self, error_id: str, error_message: str) -> bool:
+    async def mark_failed(
+        self,
+        error_id: str,
+        error_message: str,
+    ) -> bool:
         try:
             object_id = ObjectId(error_id)
         except (InvalidId, TypeError):
@@ -352,6 +359,7 @@ class ErrorLog:
                 "payload": 1,
                 "payload_content_type": 1,
                 "error": 1,
+                "analysis": 1,
                 "error_message": 1,
                 "attempts": 1,
                 "created_at": 1,
