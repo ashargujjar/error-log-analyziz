@@ -1,8 +1,4 @@
-import json
-from typing import Any
-
 from fastapi.responses import JSONResponse
-from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -15,7 +11,10 @@ ERROR_PATH = "/errors"
 
 class ErrorAPIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        if request.method != "POST" or request.url.path != ERROR_PATH:
+        is_error_path = request.url.path == ERROR_PATH or request.url.path.startswith(
+            f"{ERROR_PATH}/"
+        )
+        if request.method not in {"POST", "GET"} or not is_error_path:
             return await call_next(request)
 
         raw_key = self._authorization_key(request.headers.get("Authorization"))
@@ -36,23 +35,11 @@ class ErrorAPIKeyMiddleware(BaseHTTPMiddleware):
                 status_code=401,
             )
 
-        try:
-            payload = await request.json()
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return JSONResponse(
-                {"detail": "Request body must be valid JSON."},
-                status_code=400,
-            )
+        request.state.github_id = user["github_id"]
+        request.state.api_key_name = user["name"]
 
-        if not isinstance(payload, dict):
-            return JSONResponse(
-                {"detail": "Request body must be a JSON object."},
-                status_code=400,
-            )
-
-        payload["github_id"] = user["github_id"]
-        payload["name"] = user["name"]
-        self._replace_request_body(request, payload)
+        if request.method == "GET":
+            return await call_next(request)
 
         return await call_next(request)
 
@@ -67,11 +54,3 @@ class ErrorAPIKeyMiddleware(BaseHTTPMiddleware):
         if len(parts) == 1:
             return parts[0]
         return None
-
-    @staticmethod
-    def _replace_request_body(request: Request, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload).encode("utf-8")
-        request._body = body
-        headers = MutableHeaders(scope=request.scope)
-        headers["content-type"] = "application/json"
-        headers["content-length"] = str(len(body))

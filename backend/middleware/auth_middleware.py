@@ -20,7 +20,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        if request.url.path in PUBLIC_PATHS or request.url.path.startswith("/auth/"):
+        if (
+            request.url.path in PUBLIC_PATHS
+            or request.url.path == "/errors"
+            or request.url.path.startswith("/errors/")
+            or request.url.path.startswith("/auth/")
+        ):
             return await call_next(request)
 
         user = await User().get_user_for_session(

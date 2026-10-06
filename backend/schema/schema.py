@@ -1,6 +1,60 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+
+ERROR_CATEGORIES = (
+    "code_error",
+    "database_error",
+    "network_error",
+    "configuration_error",
+    "authentication_error",
+    "rate_limit_error",
+    "dependency_error",
+    "infrastructure_error",
+    "external_api_error",
+    "unknown",
+)
+
+ErrorCategory = Literal[
+    "code_error",
+    "database_error",
+    "network_error",
+    "configuration_error",
+    "authentication_error",
+    "rate_limit_error",
+    "dependency_error",
+    "infrastructure_error",
+    "external_api_error",
+    "unknown",
+]
+
+
+def normalize_error_category(value: object) -> ErrorCategory:
+    if not isinstance(value, str):
+        return "unknown"
+
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "code": "code_error",
+        "database": "database_error",
+        "db_error": "database_error",
+        "network": "network_error",
+        "configuration": "configuration_error",
+        "config_error": "configuration_error",
+        "authentication": "authentication_error",
+        "auth_error": "authentication_error",
+        "rate_limit": "rate_limit_error",
+        "dependency": "dependency_error",
+        "infrastructure": "infrastructure_error",
+        "external_api": "external_api_error",
+        "general": "unknown",
+        "general_error": "unknown",
+        "other": "unknown",
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if normalized in ERROR_CATEGORIES else "unknown"
 
 
 class UserSchema(BaseModel):
@@ -61,8 +115,12 @@ class errorStructureData(BaseModel):
         default=None,
         description="Source files and line-level evidence associated with the error.",
     )
-    errorType: str = Field(
-        description="Type or category of the error.",
+    errorType: ErrorCategory = Field(
+        description=(
+            "Exactly one category: code_error, database_error, network_error, "
+            "configuration_error, authentication_error, rate_limit_error, "
+            "dependency_error, infrastructure_error, external_api_error, or unknown."
+        ),
     )
     errorMessages: Optional[str] = Field(
         default=None,
@@ -75,3 +133,8 @@ class errorStructureData(BaseModel):
     description: str = Field(
         description="Clear description of the error extracted from the input.",
     )
+
+    @field_validator("errorType", mode="before")
+    @classmethod
+    def normalize_error_type(cls, value: object) -> ErrorCategory:
+        return normalize_error_category(value)
