@@ -1,0 +1,39 @@
+{
+  "name": "@error-log-analyzer/js-sdk",
+  "version": "0.1.0",
+  "description": "JavaScript SDK for sending raw error logs to Error Log Analyzer.",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node --test",
+    "prepack": "node --check src/index.js && node --test"
+  },
+  "keywords": [
+    "error",
+    "logging",
+    "incident",
+    "monitoring"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Error Log Analyzer",
+  "license": "MIT"
+}
