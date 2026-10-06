@@ -11,6 +11,7 @@ from llm.langgraph.schemas import (
     ANALYZER_NAMES,
     AggregatedAnalysis,
     AnalyzerFinding,
+    DatabaseAnalyzerFinding,
     SupervisorDecision,
 )
 from llm.langgraph.state import ErrorWorkflowState
@@ -318,17 +319,196 @@ def code_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
     return {"code_analysis": _run_code_analyzer(state)}
 
 
-def database_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
-    return {
-        "database_analysis": _run_analyzer(
-            "Database Analyzer",
-            (
-                "database connections, queries, schemas, transactions, "
-                "indexes, data storage, and database availability"
-            ),
-            state["structured_error"],
-        )
+def _database_evidence(
+    structured_error: dict[str, Any],
+) -> tuple[bool, str, list[str], list[str]]:
+    database_patterns = {
+        "mongodb": ("mongodb", "mongo", "mongoserverselectionerror"),
+        "postgresql": ("postgresql", "postgres", "psycopg", "asyncpg"),
+        "mysql": ("mysql", "mysqldb", "pymysql"),
+        "redis": ("redis", "redispy", "redissentinel"),
+        "sqlite": ("sqlite", "sqlite3"),
+        "dynamodb": ("dynamodb", "boto3"),
+        "oracle": ("oracle", "cx_oracle", "oracledb"),
     }
+    database_failure_patterns = {
+        "connection_failure": (
+            "connection refused",
+            "could not connect",
+            "connection failed",
+            "server selection",
+            "connection pool",
+        ),
+        "query_error": (
+            "query",
+            "sql syntax",
+            "syntax error",
+            "deadlock",
+            "duplicate key",
+        ),
+        "schema_error": (
+            "schema",
+            "column does not exist",
+            "table does not exist",
+            "relation does not exist",
+        ),
+        "migration_error": ("migration", "migrate", "migration failed"),
+        "transaction_error": (
+            "transaction",
+            "rollback",
+            "commit failed",
+            "serialization failure",
+        ),
+        "index_error": ("index", "index missing", "index failed"),
+        "timeout_error": ("timeout", "timed out", "statement timeout"),
+        "authentication_error": (
+            "database authentication",
+            "authentication failed",
+            "invalid database password",
+            "access denied",
+        ),
+        "availability_error": (
+            "database unavailable",
+            "database is down",
+            "service unavailable",
+        ),
+    }
+
+    searchable_values = [
+        structured_error.get("errorMessages"),
+        structured_error.get("description"),
+        structured_error.get("functionClassName"),
+    ]
+    for error_file in structured_error.get("errorFiles") or []:
+        if isinstance(error_file, dict):
+            searchable_values.extend(
+                [
+                    error_file.get("filePath"),
+                    error_file.get("lineSource"),
+                ]
+            )
+
+    searchable_text = " ".join(
+        value.lower()
+        for value in searchable_values
+        if isinstance(value, str)
+    )
+    database_type = "unknown"
+    for candidate, patterns in database_patterns.items():
+        if any(pattern in searchable_text for pattern in patterns):
+            database_type = candidate
+            break
+
+    failure_type = "unknown"
+    for candidate, patterns in database_failure_patterns.items():
+        if any(pattern in searchable_text for pattern in patterns):
+            failure_type = candidate
+            break
+
+    relevant = structured_error.get("errorType") == "database_error" or (
+        database_type != "unknown" or failure_type != "unknown"
+    )
+    evidence = []
+    traces = []
+    if structured_error.get("errorType") == "database_error":
+        evidence.append("errorType is database_error")
+    if database_type != "unknown":
+        evidence.append(f"database evidence indicates {database_type}")
+    if failure_type != "unknown":
+        evidence.append(f"database evidence indicates {failure_type}")
+
+    for value in searchable_values:
+        if isinstance(value, str) and value.strip():
+            traces.append(value.strip())
+
+    return relevant, database_type, evidence, list(dict.fromkeys(traces))
+
+
+def _run_database_analyzer(state: ErrorWorkflowState) -> dict[str, Any]:
+    structured_error = state["structured_error"]
+    relevant, database_type, evidence, traces = _database_evidence(
+        structured_error
+    )
+
+    if not relevant:
+        return DatabaseAnalyzerFinding(
+            relevant=False,
+            confidence=0.05,
+            finding=(
+                "No database-related evidence was found in the structured error."
+            ),
+            evidence=[
+                "No database type, database failure message, or database error category."
+            ],
+            recommended_action=(
+                "Capture the database error message, query, database type, "
+                "or connection details."
+            ),
+            traces_to_check=traces,
+        ).model_dump()
+
+    try:
+        analyzer = _get_analysis_llm().with_structured_output(
+            DatabaseAnalyzerFinding
+        )
+        result = analyzer.invoke(
+            [
+                (
+                    "system",
+                    (
+                        "You are the Database Analyzer. Follow this workflow:\n"
+                        "1. Check database-related evidence.\n"
+                        "2. Identify the database and failure type.\n"
+                        "3. Analyze connection, query, schema, migration, "
+                        "transaction, index, timeout, authentication, or "
+                        "availability problems.\n"
+                        "4. Return a database finding.\n\n"
+                        "You analyze only the structured error. Do not connect "
+                        "to a live database, invent queries, credentials, "
+                        "schemas, or evidence. Supported database types include "
+                        "MongoDB, PostgreSQL, MySQL, Redis, SQLite, DynamoDB, "
+                        "and Oracle. Use unknown when the evidence is "
+                        "insufficient. Include exact error messages and "
+                        "function/file traces in traces_to_check."
+                    ),
+                ),
+                (
+                    "user",
+                    "Structured error:\n"
+                    + json.dumps(structured_error, ensure_ascii=False)
+                ),
+            ]
+        )
+        finding = result.model_dump()
+        finding["evidence"] = list(
+            dict.fromkeys([*evidence, *finding.get("evidence", [])])
+        )
+        finding["traces_to_check"] = list(
+            dict.fromkeys(
+                [*traces, *finding.get("traces_to_check", [])]
+            )
+        )
+        if finding.get("database_type") == "unknown" and database_type != "unknown":
+            finding["database_type"] = database_type
+        return DatabaseAnalyzerFinding(**finding).model_dump()
+    except Exception as exc:
+        return DatabaseAnalyzerFinding(
+            relevant=True,
+            confidence=0.2,
+            finding=f"Database analysis could not complete: {exc}",
+            evidence=evidence,
+            recommended_action=(
+                "Inspect the database error, connection settings, and availability "
+                "using the listed traces."
+            ),
+            database_type=database_type,
+            failure_type="unknown",
+            traces_to_check=traces,
+        ).model_dump()
+
+
+def database_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
+    return {"database_analysis": _run_database_analyzer(state)}
 
 
 def infrastructure_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
@@ -371,7 +551,7 @@ def aggregator_node(state: ErrorWorkflowState) -> dict[str, Any]:
                 "system",
                 (
                     "You are the final error-analysis aggregator. Combine the "
-                    "four analyzer findings into one user-facing incident state "
+                    "selected analyzer findings into one user-facing incident state "
                     "for saving to the database. Select the strongest relevant "
                     "analyzer, or none if no analyzer has useful evidence. "
                     "Set approval to pending unless a human has explicitly "

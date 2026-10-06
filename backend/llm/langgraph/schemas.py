@@ -75,6 +75,37 @@ class AnalyzerFinding(BaseModel):
     )
 
 
+class DatabaseAnalyzerFinding(AnalyzerFinding):
+    database_type: Literal[
+        "mongodb",
+        "postgresql",
+        "mysql",
+        "redis",
+        "sqlite",
+        "dynamodb",
+        "oracle",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description="Database involved in the failure, if identifiable.",
+    )
+    failure_type: Literal[
+        "connection_failure",
+        "query_error",
+        "schema_error",
+        "migration_error",
+        "transaction_error",
+        "index_error",
+        "timeout_error",
+        "authentication_error",
+        "availability_error",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description="Specific database failure type.",
+    )
+
+
 class AggregatedAnalysis(BaseModel):
     title: str = Field(
         description="Short title for the incident or error.",
