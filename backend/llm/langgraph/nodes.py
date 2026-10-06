@@ -12,6 +12,8 @@ from llm.langgraph.schemas import (
     AggregatedAnalysis,
     AnalyzerFinding,
     DatabaseAnalyzerFinding,
+    ExternalAPIAnalyzerFinding,
+    InfrastructureAnalyzerFinding,
     SupervisorDecision,
 )
 from llm.langgraph.state import ErrorWorkflowState
@@ -511,17 +513,279 @@ def database_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
     return {"database_analysis": _run_database_analyzer(state)}
 
 
-def infrastructure_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
-    return {
-        "infrastructure_analysis": _run_analyzer(
-            "Infrastructure Analyzer",
-            (
-                "servers, containers, hosts, operating systems, deployments, "
-                "cloud resources, capacity, and infrastructure availability"
-            ),
-            state["structured_error"],
-        )
+def _infrastructure_evidence(
+    structured_error: dict[str, Any],
+) -> tuple[bool, str, str, list[str], list[str]]:
+    infrastructure_patterns = {
+        "server": ("server", "vm", "virtual machine", "instance"),
+        "container": ("container", "docker", "oomkilled", "docker compose"),
+        "kubernetes": (
+            "kubernetes",
+            "k8s",
+            "pod",
+            "deployment",
+            "replicaset",
+            "kubectl",
+        ),
+        "cloud": (
+            "aws",
+            "amazon",
+            "azure",
+            "gcp",
+            "google cloud",
+            "cloud resource",
+            "lambda",
+            "ec2",
+        ),
+        "load_balancer": (
+            "load balancer",
+            "loadbalancer",
+            "reverse proxy",
+            "ingress",
+            "gateway",
+        ),
+        "deployment": (
+            "deployment",
+            "release",
+            "rollback",
+            "rollout",
+            "build pipeline",
+            "ci/cd",
+        ),
+        "host": ("host", "node", "machine", "operating system", "kernel"),
+        "environment": (
+            "environment",
+            "environment variable",
+            "env var",
+            "runtime",
+        ),
     }
+    failure_patterns = {
+        "crash": (
+            "crash",
+            "crashed",
+            "panic",
+            "fatal",
+            "segmentation fault",
+            "terminated unexpectedly",
+        ),
+        "resource_exhaustion": (
+            "out of memory",
+            "oom",
+            "oomkilled",
+            "memory limit",
+            "cpu limit",
+            "cpu exhausted",
+            "resource exhausted",
+        ),
+        "disk_full": (
+            "disk full",
+            "no space left",
+            "filesystem full",
+            "storage limit",
+        ),
+        "deployment_failure": (
+            "deployment failed",
+            "deploy failed",
+            "rollout failed",
+            "image pull",
+            "build failed",
+            "release failed",
+        ),
+        "availability_failure": (
+            "unavailable",
+            "service down",
+            "host unreachable",
+            "connection refused",
+            "503",
+            "health check failed",
+        ),
+        "service_restart": (
+            "restart",
+            "restarted",
+            "crashloopbackoff",
+        ),
+        "network_failure": (
+            "dns",
+            "network unreachable",
+            "connection timeout",
+            "connection refused",
+            "network failure",
+        ),
+        "configuration_failure": (
+            "invalid configuration",
+            "missing configuration",
+            "environment variable",
+            "configmap",
+            "secret",
+        ),
+        "health_check_failure": (
+            "health check",
+            "readiness probe",
+            "liveness probe",
+            "unhealthy",
+        ),
+    }
+
+    searchable_values = [
+        structured_error.get("errorMessages"),
+        structured_error.get("description"),
+        structured_error.get("functionClassName"),
+    ]
+    for error_file in structured_error.get("errorFiles") or []:
+        if isinstance(error_file, dict):
+            searchable_values.extend(
+                [
+                    error_file.get("filePath"),
+                    error_file.get("lineSource"),
+                ]
+            )
+
+    searchable_text = " ".join(
+        value.lower()
+        for value in searchable_values
+        if isinstance(value, str)
+    )
+
+    infrastructure_type = "unknown"
+    for candidate, patterns in infrastructure_patterns.items():
+        if any(pattern in searchable_text for pattern in patterns):
+            infrastructure_type = candidate
+            break
+
+    failure_type = "unknown"
+    for candidate, patterns in failure_patterns.items():
+        if any(pattern in searchable_text for pattern in patterns):
+            failure_type = candidate
+            break
+
+    relevant = structured_error.get("errorType") == "infrastructure_error" or (
+        infrastructure_type != "unknown" or failure_type != "unknown"
+    )
+    evidence = []
+    traces = []
+    if structured_error.get("errorType") == "infrastructure_error":
+        evidence.append("errorType is infrastructure_error")
+    if infrastructure_type != "unknown":
+        evidence.append(
+            f"infrastructure evidence indicates {infrastructure_type}"
+        )
+    if failure_type != "unknown":
+        evidence.append(f"infrastructure evidence indicates {failure_type}")
+
+    for value in searchable_values:
+        if isinstance(value, str) and value.strip():
+            traces.append(value.strip())
+
+    return (
+        relevant,
+        infrastructure_type,
+        failure_type,
+        evidence,
+        list(dict.fromkeys(traces)),
+    )
+
+
+def _run_infrastructure_analyzer(
+    state: ErrorWorkflowState,
+) -> dict[str, Any]:
+    structured_error = state["structured_error"]
+    (
+        relevant,
+        infrastructure_type,
+        failure_type,
+        evidence,
+        traces,
+    ) = _infrastructure_evidence(structured_error)
+
+    if not relevant:
+        return InfrastructureAnalyzerFinding(
+            relevant=False,
+            confidence=0.05,
+            finding=(
+                "No server, deployment, container, cloud, or resource evidence "
+                "was found in the structured error."
+            ),
+            evidence=[
+                "No infrastructure category, platform, resource, or deployment signal."
+            ],
+            recommended_action=(
+                "Capture the affected host, container, deployment, resource, "
+                "or platform details."
+            ),
+            traces_to_check=traces,
+        ).model_dump()
+
+    try:
+        analyzer = _get_analysis_llm().with_structured_output(
+            InfrastructureAnalyzerFinding
+        )
+        result = analyzer.invoke(
+            [
+                (
+                    "system",
+                    (
+                        "You are the Infrastructure Analyzer. Follow this "
+                        "workflow exactly:\n"
+                        "1. Check server and deployment evidence.\n"
+                        "2. Inspect host, container, Kubernetes, cloud, load "
+                        "balancer, and resource problems.\n"
+                        "3. Identify the infrastructure impact.\n"
+                        "4. Return an infrastructure finding.\n\n"
+                        "Analyze only the structured error. Do not connect to "
+                        "servers, cloud providers, Kubernetes, or containers. "
+                        "Do not invent metrics, resource values, hosts, "
+                        "deployments, or evidence. Analyze server crashes, "
+                        "containers, Kubernetes, deployment failures, CPU or "
+                        "memory exhaustion, disk full, host availability, cloud "
+                        "resources, load balancers, service restarts, and "
+                        "environment failures. Use unknown when evidence is "
+                        "insufficient. Include exact messages and resources "
+                        "in traces_to_check."
+                    ),
+                ),
+                (
+                    "user",
+                    "Structured error:\n"
+                    + json.dumps(structured_error, ensure_ascii=False)
+                ),
+            ]
+        )
+        finding = result.model_dump()
+        finding["evidence"] = list(
+            dict.fromkeys([*evidence, *finding.get("evidence", [])])
+        )
+        finding["traces_to_check"] = list(
+            dict.fromkeys(
+                [*traces, *finding.get("traces_to_check", [])]
+            )
+        )
+        if (
+            finding.get("infrastructure_type") == "unknown"
+            and infrastructure_type != "unknown"
+        ):
+            finding["infrastructure_type"] = infrastructure_type
+        if finding.get("failure_type") == "unknown" and failure_type != "unknown":
+            finding["failure_type"] = failure_type
+        return InfrastructureAnalyzerFinding(**finding).model_dump()
+    except Exception as exc:
+        return InfrastructureAnalyzerFinding(
+            relevant=True,
+            confidence=0.2,
+            finding=f"Infrastructure analysis could not complete: {exc}",
+            evidence=evidence,
+            recommended_action=(
+                "Inspect the affected infrastructure resource and service health "
+                "using the listed traces."
+            ),
+            infrastructure_type=infrastructure_type,
+            failure_type=failure_type,
+            traces_to_check=traces,
+        ).model_dump()
+
+
+def infrastructure_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:
+    return {"infrastructure_analysis": _run_infrastructure_analyzer(state)}
 
 
 def external_api_analyzer_node(state: ErrorWorkflowState) -> dict[str, Any]:

@@ -106,6 +106,74 @@ class DatabaseAnalyzerFinding(AnalyzerFinding):
     )
 
 
+class InfrastructureAnalyzerFinding(AnalyzerFinding):
+    infrastructure_type: Literal[
+        "server",
+        "container",
+        "kubernetes",
+        "cloud",
+        "load_balancer",
+        "deployment",
+        "host",
+        "environment",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description="Infrastructure area involved in the failure.",
+    )
+    failure_type: Literal[
+        "crash",
+        "resource_exhaustion",
+        "disk_full",
+        "deployment_failure",
+        "availability_failure",
+        "service_restart",
+        "network_failure",
+        "configuration_failure",
+        "health_check_failure",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description="Specific infrastructure failure type.",
+    )
+
+
+class ExternalAPIAnalyzerFinding(AnalyzerFinding):
+    provider: Literal[
+        "github",
+        "stripe",
+        "aws",
+        "openai",
+        "deepseek",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description="External provider involved in the failure.",
+    )
+    failure_type: Literal[
+        "authentication_failure",
+        "authorization_failure",
+        "not_found",
+        "rate_limit",
+        "server_error",
+        "timeout",
+        "outage",
+        "webhook_failure",
+        "network_failure",
+        "invalid_request",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description="Specific external API failure type.",
+    )
+    http_status: Optional[int] = Field(
+        default=None,
+        ge=100,
+        le=599,
+        description="HTTP status code found in the evidence, if available.",
+    )
+
+
 class AggregatedAnalysis(BaseModel):
     title: str = Field(
         description="Short title for the incident or error.",
