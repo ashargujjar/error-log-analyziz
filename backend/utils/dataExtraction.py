@@ -8,7 +8,7 @@ from langchain_deepseek import ChatDeepSeek
 from schema.schema import errorStructureData
 
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
 
 
 @lru_cache(maxsize=1)

@@ -1,5 +1,5 @@
 {
-  "name": "@error-log-analyzer/js-sdk",
+  "name": "error-log-analyzer-js-sdk",
   "version": "0.1.0",
   "description": "JavaScript SDK for sending raw error logs to Error Log Analyzer.",
   "type": "module",

@@ -7,7 +7,7 @@ The SDK sends the original raw log text to `POST /errors`. Your backend saves it
 ## Install
 
 ```bash
-npm install @error-log-analyzer/js-sdk
+npm install error-log-analyzer-js-sdk
 ```
 
 This package requires Node.js 18 or newer because it uses the built-in `fetch` API.
@@ -15,7 +15,7 @@ This package requires Node.js 18 or newer because it uses the built-in `fetch` A
 ## Usage
 
 ```js
-import { ErrorLogClient } from "@error-log-analyzer/js-sdk";
+import { ErrorLogClient } from "error-log-analyzer-js-sdk";
 
 const client = new ErrorLogClient({
   apiKey: process.env.ERROR_LOG_API_KEY,
@@ -100,7 +100,5 @@ npm pack --dry-run
 npm login
 npm publish --access public
 ```
-
-The scoped package name `@error-log-analyzer/js-sdk` requires access to the `error-log-analyzer` npm organization. If that organization does not exist in your npm account, rename the package before publishing.
 
 Keep API keys on the server side. Do not expose this SDK key in browser React code.

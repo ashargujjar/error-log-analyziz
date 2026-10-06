@@ -292,7 +292,7 @@ shutdown()
 Example:
 
 ```js
-import { ErrorLogClient } from "@error-log-analyzer/js-sdk";
+import { ErrorLogClient } from "error-log-analyzer-js-sdk";
 
 const client = new ErrorLogClient({
   apiKey: process.env.ERROR_LOG_API_KEY,

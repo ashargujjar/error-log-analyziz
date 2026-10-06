@@ -21,7 +21,7 @@ from llm.langgraph.state import ErrorWorkflowState
 from utils.github_code import fetch_github_file
 
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
 
 
 @lru_cache(maxsize=1)

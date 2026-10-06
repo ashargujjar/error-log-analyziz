@@ -1,0 +1,16 @@
+{
+  "name": "sdk-test",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "type": "module",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "error-log-analyzer-js-sdk": "^0.1.0"
+  }
+}
